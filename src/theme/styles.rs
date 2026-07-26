@@ -25,7 +25,7 @@ pub fn card_style(_theme: &Theme) -> container::Style {
         border: Border {
             color: colors::BORDER,
             width: 1.0,
-            radius: 8.0.into(),
+            radius: 10.0.into(),
         },
         shadow: Shadow::default(),
     }
@@ -38,7 +38,7 @@ pub fn completed_card_style(_theme: &Theme) -> container::Style {
         border: Border {
             color: colors::BORDER,
             width: 1.0,
-            radius: 8.0.into(),
+            radius: 10.0.into(),
         },
         shadow: Shadow::default(),
     }
@@ -51,7 +51,7 @@ pub fn failed_card_style(_theme: &Theme) -> container::Style {
         border: Border {
             color: colors::FAILED_BORDER,
             width: 1.0,
-            radius: 8.0.into(),
+            radius: 10.0.into(),
         },
         shadow: Shadow::default(),
     }
@@ -107,7 +107,7 @@ pub fn primary_button_style(_theme: &Theme, status: button::Status) -> button::S
         background: Some(Background::Color(bg)),
         text_color: colors::BACKGROUND,
         border: Border {
-            radius: 6.0.into(),
+            radius: 8.0.into(),
             ..Default::default()
         },
         shadow: Shadow::default(),
@@ -136,8 +136,8 @@ pub fn ghost_button_style(_theme: &Theme, status: button::Status) -> button::Sty
         background: bg,
         text_color: colors::TEXT_PRIMARY,
         border: Border {
-            color: Color::TRANSPARENT,
-            width: 0.0,
+            color: colors::BORDER,
+            width: 1.0,
             radius: 8.0.into(),
         },
         shadow: Shadow::default(),
@@ -159,6 +159,25 @@ pub fn progress_bar_style_with_color(bar_color: Color) -> impl Fn(&Theme) -> pro
 }
 
 // --- Text Input Styles ---
+
+pub fn dark_input_style(_theme: &Theme, status: text_input::Status) -> text_input::Style {
+    let border_color = match status {
+        text_input::Status::Focused => colors::PRIMARY,
+        _ => colors::BORDER,
+    };
+    text_input::Style {
+        background: Background::Color(colors::SURFACE_HIGH),
+        border: Border {
+            color: border_color,
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        icon: colors::TEXT_MUTED,
+        placeholder: colors::TEXT_MUTED,
+        value: colors::TEXT_PRIMARY,
+        selection: colors::PRIMARY,
+    }
+}
 
 pub fn transparent_text_input_style(_theme: &Theme, _status: text_input::Status) -> text_input::Style {
     text_input::Style {
