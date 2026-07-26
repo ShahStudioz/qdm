@@ -90,9 +90,9 @@ pub fn active_nav_button_style(_theme: &Theme, _status: button::Status) -> butto
         background: Some(Background::Color(colors::SURFACE_HIGH)),
         text_color: colors::PRIMARY,
         border: Border {
-            color: colors::PRIMARY,
-            width: 0.0,
-            radius: 6.0.into(),
+            color: colors::BORDER,
+            width: 1.0,
+            radius: 8.0.into(),
         },
         shadow: Shadow::default(),
     }
@@ -136,9 +136,9 @@ pub fn ghost_button_style(_theme: &Theme, status: button::Status) -> button::Sty
         background: bg,
         text_color: colors::TEXT_PRIMARY,
         border: Border {
-            color: colors::BORDER,
-            width: 1.0,
-            radius: 6.0.into(),
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: 8.0.into(),
         },
         shadow: Shadow::default(),
     }
@@ -160,17 +160,13 @@ pub fn progress_bar_style_with_color(bar_color: Color) -> impl Fn(&Theme) -> pro
 
 // --- Text Input Styles ---
 
-pub fn search_input_style(_theme: &Theme, status: text_input::Status) -> text_input::Style {
-    let border_color = match status {
-        text_input::Status::Focused => colors::PRIMARY,
-        _ => colors::BORDER,
-    };
+pub fn transparent_text_input_style(_theme: &Theme, _status: text_input::Status) -> text_input::Style {
     text_input::Style {
-        background: Background::Color(colors::SURFACE_HIGH),
+        background: Background::Color(Color::TRANSPARENT),
         border: Border {
-            color: border_color,
-            width: 1.0,
-            radius: 8.0.into(),
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: 0.0.into(),
         },
         icon: colors::TEXT_MUTED,
         placeholder: colors::TEXT_MUTED,

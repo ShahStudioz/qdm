@@ -1,13 +1,15 @@
 use iced::widget::{column, container, row};
-use iced::{Element, Length, Theme};
+use iced::{Element, Length, Subscription, Theme};
 use crate::models::download::{DownloadItem, DownloadState, FileType};
 use crate::theme::colors;
 use crate::views::download_list::download_list_view;
 use crate::views::sidebar::{sidebar_view, NavFilter};
 use crate::views::toolbar::toolbar_view;
+use crate::views::settings::{settings_view, SettingsModel, SettingsTab};
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    Tick,
     NavSelected(NavFilter),
     SearchChanged(String),
     AddUrlPressed,
@@ -16,12 +18,28 @@ pub enum Message {
     TogglePause(usize),
     CancelDownload(usize),
     OpenFolder(usize),
+
+    // Settings Messages
+    SettingsTabSelected(SettingsTab),
+    ToggleStartup(bool),
+    ToggleTray(bool),
+    FolderChanged(String),
+    BrowseFolderPressed,
+    StepperDecrement,
+    StepperIncrement,
+    ToggleNotifications(bool),
+    SoundChanged(String),
+    ToggleUpdates(bool),
+    CheckUpdatesPressed,
+    ResetDefaultsPressed,
+    SaveChangesPressed,
 }
 
 pub struct QdmApp {
     current_filter: NavFilter,
     search_query: String,
     downloads: Vec<DownloadItem>,
+    settings: SettingsModel,
 }
 
 impl Default for QdmApp {
@@ -87,6 +105,7 @@ impl Default for QdmApp {
                     file_type: FileType::Code,
                 },
             ],
+            settings: SettingsModel::default(),
         }
     }
 }
@@ -94,6 +113,9 @@ impl Default for QdmApp {
 impl QdmApp {
     pub fn update(&mut self, message: Message) {
         match message {
+            Message::Tick => {
+                self.settings.tick_animation();
+            }
             Message::NavSelected(filter) => {
                 self.current_filter = filter;
             }
@@ -139,6 +161,59 @@ impl QdmApp {
             Message::OpenFolder(id) => {
                 println!("[QDM] Open folder for item {}", id);
             }
+
+            // Settings Message Handlers
+            Message::SettingsTabSelected(tab) => {
+                self.settings.active_tab = tab;
+            }
+            Message::ToggleStartup(val) => {
+                self.settings.launch_at_startup = val;
+            }
+            Message::ToggleTray(val) => {
+                self.settings.minimize_to_tray = val;
+            }
+            Message::FolderChanged(folder) => {
+                self.settings.download_folder = folder;
+            }
+            Message::BrowseFolderPressed => {
+                println!("[QDM] Browse download folder pressed");
+            }
+            Message::StepperDecrement => {
+                if self.settings.simultaneous_downloads > 1 {
+                    self.settings.simultaneous_downloads -= 1;
+                }
+            }
+            Message::StepperIncrement => {
+                if self.settings.simultaneous_downloads < 16 {
+                    self.settings.simultaneous_downloads += 1;
+                }
+            }
+            Message::ToggleNotifications(val) => {
+                self.settings.show_notifications = val;
+            }
+            Message::SoundChanged(sound) => {
+                self.settings.notification_sound = sound;
+            }
+            Message::ToggleUpdates(val) => {
+                self.settings.auto_check_updates = val;
+            }
+            Message::CheckUpdatesPressed => {
+                println!("[QDM] Checking for updates...");
+            }
+            Message::ResetDefaultsPressed => {
+                self.settings = SettingsModel::default();
+            }
+            Message::SaveChangesPressed => {
+                println!("[QDM] Settings saved: {:?}", self.settings.download_folder);
+            }
+        }
+    }
+
+    pub fn subscription(&self) -> Subscription<Message> {
+        if self.settings.is_animating() {
+            iced::time::every(std::time::Duration::from_millis(16)).map(|_| Message::Tick)
+        } else {
+            Subscription::none()
         }
     }
 
@@ -196,41 +271,59 @@ impl QdmApp {
             Message::SettingsPressed,
         );
 
-        // 3. Filter downloads directly as iterator
-        let filtered_items = self.downloads.iter().filter(|d| {
-            let matches_filter = match self.current_filter {
-                NavFilter::All => true,
-                NavFilter::Downloading => matches!(d.state, DownloadState::Downloading { .. }),
-                NavFilter::Completed => matches!(d.state, DownloadState::Completed),
-                NavFilter::Failed => matches!(d.state, DownloadState::Failed { .. }),
-                NavFilter::Scheduled => false,
-                NavFilter::Settings => true,
-            };
+        // 3. Main Content View: Settings view if NavFilter::Settings, otherwise Download List
+        let main_content: Element<Message> = if self.current_filter == NavFilter::Settings {
+            settings_view(
+                &self.settings,
+                Message::SettingsTabSelected,
+                Message::ToggleStartup,
+                Message::ToggleTray,
+                Message::FolderChanged,
+                Message::BrowseFolderPressed,
+                Message::StepperDecrement,
+                Message::StepperIncrement,
+                Message::ToggleNotifications,
+                Message::SoundChanged,
+                Message::ToggleUpdates,
+                Message::CheckUpdatesPressed,
+                Message::ResetDefaultsPressed,
+                Message::SaveChangesPressed,
+            )
+        } else {
+            let filtered_items = self.downloads.iter().filter(|d| {
+                let matches_filter = match self.current_filter {
+                    NavFilter::All => true,
+                    NavFilter::Downloading => matches!(d.state, DownloadState::Downloading { .. }),
+                    NavFilter::Completed => matches!(d.state, DownloadState::Completed),
+                    NavFilter::Failed => matches!(d.state, DownloadState::Failed { .. }),
+                    NavFilter::Scheduled => false,
+                    NavFilter::Settings => false,
+                };
 
-            let matches_search = if self.search_query.is_empty() {
-                true
-            } else {
-                d.filename
-                    .to_lowercase()
-                    .contains(&self.search_query.to_lowercase())
-                    || d.url
+                let matches_search = if self.search_query.is_empty() {
+                    true
+                } else {
+                    d.filename
                         .to_lowercase()
                         .contains(&self.search_query.to_lowercase())
-            };
+                        || d.url
+                            .to_lowercase()
+                            .contains(&self.search_query.to_lowercase())
+                };
 
-            matches_filter && matches_search
-        });
+                matches_filter && matches_search
+            });
 
-        // 4. Main List View
-        let main_list = download_list_view(
-            filtered_items,
-            Message::TogglePause,
-            Message::CancelDownload,
-            Message::OpenFolder,
-        );
+            download_list_view(
+                filtered_items,
+                Message::TogglePause,
+                Message::CancelDownload,
+                Message::OpenFolder,
+            )
+        };
 
-        // Right side layout: Toolbar + Main List
-        let right_content = column![toolbar, main_list].width(Length::Fill).height(Length::Fill);
+        // Right side layout: Toolbar + Main Content
+        let right_content = column![toolbar, main_content].width(Length::Fill).height(Length::Fill);
 
         // Overall root layout: Sidebar + Right Content
         let root_layout = row![sidebar, right_content].width(Length::Fill).height(Length::Fill);

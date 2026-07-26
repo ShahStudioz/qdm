@@ -10,6 +10,7 @@ use app::QdmApp;
 
 fn main() -> iced::Result {
     iced::application("Quick Download Manager", QdmApp::update, QdmApp::view)
+        .subscription(QdmApp::subscription)
         .theme(QdmApp::theme)
         .window(window::Settings {
             size: Size::new(1200.0, 760.0),

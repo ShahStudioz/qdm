@@ -98,6 +98,24 @@ where
 {
     let is_active = item_filter == active_filter;
     
+    // Left Accent Bar (4px wide)
+    let left_indicator = container(Space::with_width(4))
+        .width(4)
+        .height(24)
+        .style(move |_| container::Style {
+            background: Some(iced::Background::Color(if is_active { colors::PRIMARY } else { iced::Color::TRANSPARENT })),
+            border: iced::Border {
+                radius: iced::border::Radius {
+                    top_left: 4.0,
+                    bottom_left: 4.0,
+                    top_right: 0.0,
+                    bottom_right: 0.0,
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
     let icon_element = icon(icon_char)
         .size(16)
         .color(if is_active { colors::PRIMARY } else { colors::TEXT_MUTED });
@@ -107,7 +125,7 @@ where
         .font(if is_active { styles::BOLD_FONT } else { iced::Font::DEFAULT })
         .color(if is_active { colors::PRIMARY } else { colors::TEXT_MUTED });
 
-    let mut row_content = row![icon_element, label_element].spacing(12).align_y(Alignment::Center);
+    let mut inner_row = row![icon_element, label_element].spacing(12).align_y(Alignment::Center);
 
     if let Some(count) = badge_count {
         if count > 0 {
@@ -127,14 +145,22 @@ where
                 ..Default::default()
             });
 
-            row_content = row_content.push(Space::with_width(Length::Fill));
-            row_content = row_content.push(badge);
+            inner_row = inner_row.push(Space::with_width(Length::Fill));
+            inner_row = inner_row.push(badge);
         }
     }
 
-    let btn = button(row_content)
+    let item_content = row![
+        left_indicator,
+        Space::with_width(8),
+        inner_row,
+        Space::with_width(8),
+    ]
+    .align_y(Alignment::Center);
+
+    let btn = button(item_content)
         .width(Length::Fill)
-        .padding([10, 12])
+        .padding([8, 0])
         .style(move |theme, status| {
             if is_active {
                 styles::active_nav_button_style(theme, status)

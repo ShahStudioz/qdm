@@ -19,19 +19,20 @@ where
     // Left side: Title
     let title_text = text(title).size(22).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY);
 
-    // Search bar with left search icon
+    // Single unified search bar component (320px wide) with left magnifying glass icon
     let search_icon = icon(icons::ICON_SEARCH).size(14).color(colors::TEXT_MUTED);
     let search_input_widget = text_input("Search downloads...", search_text)
         .on_input(on_search_changed)
         .padding([8, 8])
-        .width(180)
-        .style(styles::search_input_style);
+        .width(280)
+        .style(styles::transparent_text_input_style);
 
     let search_bar = container(
         row![search_icon, search_input_widget]
-            .spacing(8)
+            .spacing(6)
             .align_y(Alignment::Center)
     )
+    .width(320)
     .padding([0, 10])
     .style(|_| container::Style {
         background: Some(iced::Background::Color(colors::SURFACE_HIGH)),
@@ -93,9 +94,9 @@ where
         title_text,
         Space::with_width(Length::Fill),
         search_bar,
-        Space::with_width(12),
+        Space::with_width(16),
         speed_badge,
-        Space::with_width(12),
+        Space::with_width(16),
         add_button,
         Space::with_width(8),
         divider,
