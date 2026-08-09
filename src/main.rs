@@ -1,11 +1,12 @@
 use iced::{window, Size};
 
 mod app;
+mod core;
 mod icons;
 mod models;
+mod services;
 mod theme;
 mod views;
-mod services;
 
 use app::QdmApp;
 
@@ -20,5 +21,5 @@ fn main() -> iced::Result {
             ..Default::default()
         })
         .font(icons::FONTAWESOME_BYTES)
-        .run()
+        .run_with(QdmApp::new)
 }

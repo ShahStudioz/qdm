@@ -1,6 +1,4 @@
-pub mod sidebar;
-pub mod toolbar;
-pub mod download_item;
-pub mod download_list;
+pub mod components;
+pub mod dialogues;
+pub mod downloads;
 pub mod settings;
-pub mod add_dialog;

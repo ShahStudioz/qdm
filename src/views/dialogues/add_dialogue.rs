@@ -1,5 +1,6 @@
+use crate::core::utils::paths;
 use crate::icons::{self, icon};
-use crate::services::download::{DownloadFileMetaData, DownloadService};
+use crate::services::downloads::download::{DownloadFileMetaData, DownloadService};
 use crate::theme::{colors, styles};
 use iced::widget::{button, column, container, row, text, text_input, Space};
 use iced::{Alignment, Element, Length, Task};
@@ -34,7 +35,7 @@ impl Default for AddDialogModel {
             step: AddDialogStep::UrlInput,
             url: String::new(),
             filename: String::new(),
-            save_to: "C:\\Users\\Downloads".to_string(),
+            save_to: paths::get_default_download_dir(),
             is_advanced_expanded: false,
             max_connections: "8".to_string(),
             speed_limit: String::new(),
@@ -51,6 +52,7 @@ impl AddDialogModel {
         self.step = AddDialogStep::UrlInput;
         self.url.clear();
         self.filename.clear();
+        self.save_to = paths::get_default_download_dir();
         self.has_error = false;
         self.error.clear();
         self.download_file_metadata = None;
@@ -59,7 +61,6 @@ impl AddDialogModel {
 }
 
 pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
-    // 1. Header
     let title_text = text(match state.step {
         AddDialogStep::DownloadDetails => "Download Details",
         _ => "Add New Download",
@@ -84,7 +85,6 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
             ..Default::default()
         });
 
-    // Error Message Container
     let error_view: Element<AddDialogueModalMessage> = if state.has_error && !state.error.is_empty() {
         container(
             row![
@@ -112,10 +112,8 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
         Space::with_height(0).into()
     };
 
-    // Main Content based on step
     let form_body: Element<AddDialogueModalMessage> = match state.step {
         AddDialogStep::UrlInput | AddDialogStep::FetchingInfo => {
-            // STEP 1: URL Input with Paste Icon inside on the left
             let url_label = form_label("DOWNLOAD URL");
 
             let paste_btn = button(
@@ -165,7 +163,6 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                 .into()
         }
         AddDialogStep::DownloadDetails => {
-            // STEP 2: Full Download Details
             let metadata_summary: Element<AddDialogueModalMessage> =
                 if let Some(ref meta) = state.download_file_metadata {
                     let size_str = meta
@@ -220,7 +217,6 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                     Space::with_height(0).into()
                 };
 
-            // DOWNLOAD URL (read-only/editable display)
             let url_label = form_label("DOWNLOAD URL");
             let url_input = text_input("", &state.url)
                 .on_input(AddDialogueModalMessage::AddUrlChanged)
@@ -229,7 +225,6 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                 .style(styles::dark_input_style);
             let url_group = column![url_label, url_input].spacing(4);
 
-            // FILENAME
             let filename_label = form_label("FILENAME");
             let wand_icon = icon(icons::ICON_WAND).size(14).color(colors::PRIMARY);
             let filename_widget = text_input("file.zip", &state.filename)
@@ -255,9 +250,8 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
             });
             let filename_group = column![filename_label, filename_box].spacing(6);
 
-            // SAVE TO
             let save_to_label = form_label("SAVE TO");
-            let save_to_input = text_input("C:\\Users\\Downloads", &state.save_to)
+            let save_to_input = text_input(&paths::get_default_download_dir(), &state.save_to)
                 .on_input(AddDialogueModalMessage::AddSaveToChanged)
                 .padding([10, 12])
                 .width(Length::Fill)
@@ -277,7 +271,6 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                 .align_y(Alignment::Center);
             let save_to_group = column![save_to_label, save_to_row].spacing(6);
 
-            // Collapsible Advanced Options
             let chevron_char = if state.is_advanced_expanded {
                 icons::ICON_CHEVRON_UP
             } else {
@@ -343,7 +336,6 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
         }
     };
 
-    // 3. Footer Buttons
     let footer_divider = container(Space::with_height(1))
         .width(Length::Fill)
         .height(1)
@@ -396,7 +388,6 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
         .padding([16, 20])
         .align_y(Alignment::Center);
 
-    // Modal Card Layout
     let modal_card = container(column![
         header_row,
         header_divider,
@@ -407,7 +398,6 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
     .width(520)
     .style(styles::card_style);
 
-    // Semi-transparent Overlay Backdrop
     container(modal_card)
         .width(Length::Fill)
         .height(Length::Fill)

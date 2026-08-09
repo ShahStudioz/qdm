@@ -33,10 +33,10 @@ impl DownloadService {
             .header(RANGE, "bytes=0-0")
             .send()
             .await
-            .map_err(|x| format!("Error while fetching file MetaData, {}", x))?;
+            .map_err(|x| format!("Error while fetching file metadata: {}", x))?;
 
         if !resp.status().is_success() {
-            return Err("Unsuccessful request while fetching MetaData".to_string());
+            return Err("Unsuccessful HTTP status while fetching metadata".to_string());
         }
 
         let headers = resp.headers();
@@ -60,12 +60,8 @@ impl DownloadService {
 
         let mut content_length = resp.content_length();
         if supports_resume {
-            // If 206, content_length is just '1'. We must parse the Content-Range header.
-            // Example format: "bytes 0-0/123456"
             if let Some(content_range) = headers.get(CONTENT_RANGE).and_then(|v| v.to_str().ok()) {
-                // Split by '/' and grab the last part (the total size)
                 if let Some(total_size_str) = content_range.split('/').last() {
-                    // Try to parse the string into a u64
                     if let Ok(total_size) = total_size_str.parse::<u64>() {
                         content_length = Some(total_size);
                     }

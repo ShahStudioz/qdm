@@ -24,7 +24,6 @@ pub fn sidebar_view<'a, Message>(
 where
     Message: 'a + Clone + 'static,
 {
-    // App Header / Logo: Cyan rounded square container with white download arrow
     let logo_box = container(
         icon(icons::ICON_LOGO).size(16).color(colors::BACKGROUND)
     )
@@ -54,7 +53,6 @@ where
     )
     .padding([20, 20]);
 
-    // Navigation Items
     let items = column![
         nav_item("All Downloads", icons::ICON_DOWNLOADS, NavFilter::All, current_filter, None, on_select.clone()),
         nav_item("Downloading", icons::ICON_DOWNLOADING, NavFilter::Downloading, current_filter, Some(downloading_count), on_select.clone()),
@@ -97,8 +95,7 @@ where
     Message: 'a + Clone + 'static,
 {
     let is_active = item_filter == active_filter;
-    
-    // Left Accent Bar (4px wide)
+
     let left_indicator = container(Space::with_width(4))
         .width(4)
         .height(24)
@@ -131,7 +128,7 @@ where
         if count > 0 {
             let badge_bg = if is_active { colors::PRIMARY } else { colors::SURFACE_HIGH };
             let badge_fg = if is_active { colors::BACKGROUND } else { colors::TEXT_MUTED };
-            
+
             let badge = container(
                 text(count.to_string()).size(11).font(styles::BOLD_FONT).color(badge_fg)
             )

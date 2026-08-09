@@ -42,7 +42,7 @@ impl Default for SettingsModel {
             minimize_to_tray: true,
             minimize_to_tray_anim: 1.0,
 
-            download_folder: "C:\\Users\\Downloads".to_string(),
+            download_folder: crate::core::utils::paths::get_default_download_dir(),
             simultaneous_downloads: 3,
 
             show_notifications: true,
@@ -95,31 +95,63 @@ impl SettingsModel {
     }
 }
 
-pub fn settings_view<'a, Message>(
-    model: &'a SettingsModel,
-    on_tab_select: impl Fn(SettingsTab) -> Message + 'a + Clone,
-    on_toggle_startup: impl Fn(bool) -> Message + 'a,
-    on_toggle_tray: impl Fn(bool) -> Message + 'a,
-    on_folder_change: impl Fn(String) -> Message + 'a,
-    on_browse_folder: Message,
-    on_stepper_decrement: Message,
-    on_stepper_increment: Message,
-    on_toggle_notifications: impl Fn(bool) -> Message + 'a,
-    on_sound_change: impl Fn(String) -> Message + 'a,
-    on_toggle_updates: impl Fn(bool) -> Message + 'a,
-    on_check_updates: Message,
-    on_reset_defaults: Message,
-    on_save_changes: Message,
-) -> Element<'a, Message>
-where
-    Message: 'a + Clone + 'static,
-{
-    // 1. Top Header Tabs (General, Downloads, Network, Appearance)
+#[derive(Debug, Clone)]
+pub enum SettingsMessage {
+    TabSelected(SettingsTab),
+    ToggleStartup(bool),
+    ToggleTray(bool),
+    FolderChanged(String),
+    BrowseFolderPressed,
+    StepperDecrement,
+    StepperIncrement,
+    ToggleNotifications(bool),
+    SoundChanged(String),
+    ToggleUpdates(bool),
+    CheckUpdatesPressed,
+    ResetDefaultsPressed,
+    SaveChangesPressed,
+}
+
+pub fn update(model: &mut SettingsModel, message: SettingsMessage) {
+    match message {
+        SettingsMessage::TabSelected(tab) => model.active_tab = tab,
+        SettingsMessage::ToggleStartup(val) => model.launch_at_startup = val,
+        SettingsMessage::ToggleTray(val) => model.minimize_to_tray = val,
+        SettingsMessage::FolderChanged(folder) => model.download_folder = folder,
+        SettingsMessage::BrowseFolderPressed => {
+            println!("[QDM] Browse download folder pressed");
+        }
+        SettingsMessage::StepperDecrement => {
+            if model.simultaneous_downloads > 1 {
+                model.simultaneous_downloads -= 1;
+            }
+        }
+        SettingsMessage::StepperIncrement => {
+            if model.simultaneous_downloads < 16 {
+                model.simultaneous_downloads += 1;
+            }
+        }
+        SettingsMessage::ToggleNotifications(val) => model.show_notifications = val,
+        SettingsMessage::SoundChanged(sound) => model.notification_sound = sound,
+        SettingsMessage::ToggleUpdates(val) => model.auto_check_updates = val,
+        SettingsMessage::CheckUpdatesPressed => {
+            println!("[QDM] Checking for updates...");
+        }
+        SettingsMessage::ResetDefaultsPressed => {
+            *model = SettingsModel::default();
+        }
+        SettingsMessage::SaveChangesPressed => {
+            println!("[QDM] Settings saved: {:?}", model.download_folder);
+        }
+    }
+}
+
+pub fn settings_view(model: &SettingsModel) -> Element<'_, SettingsMessage> {
     let tabs_row = row![
-        tab_item("General", SettingsTab::General, model.active_tab, on_tab_select.clone()),
-        tab_item("Downloads", SettingsTab::Downloads, model.active_tab, on_tab_select.clone()),
-        tab_item("Network", SettingsTab::Network, model.active_tab, on_tab_select.clone()),
-        tab_item("Appearance", SettingsTab::Appearance, model.active_tab, on_tab_select),
+        tab_item("General", SettingsTab::General, model.active_tab),
+        tab_item("Downloads", SettingsTab::Downloads, model.active_tab),
+        tab_item("Network", SettingsTab::Network, model.active_tab),
+        tab_item("Appearance", SettingsTab::Appearance, model.active_tab),
     ]
     .spacing(24)
     .align_y(Alignment::Center);
@@ -136,23 +168,21 @@ where
             ..Default::default()
         });
 
-    // 2. Settings Items List with Custom Animated Switches
     let item_startup = setting_row(
         "Launch at startup",
         "Automatically start QDM when you log in",
-        custom_switch(model.launch_at_startup, model.launch_at_startup_anim, on_toggle_startup),
+        custom_switch(model.launch_at_startup, model.launch_at_startup_anim, SettingsMessage::ToggleStartup),
     );
 
     let item_tray = setting_row(
         "Minimize to system tray",
         "Keep running in the background when closed",
-        custom_switch(model.minimize_to_tray, model.minimize_to_tray_anim, on_toggle_tray),
+        custom_switch(model.minimize_to_tray, model.minimize_to_tray_anim, SettingsMessage::ToggleTray),
     );
 
-    // Default download folder input + Browse button
     let folder_icon = icon(icons::ICON_FOLDER).size(14).color(colors::TEXT_MUTED);
     let folder_input = text_input("", &model.download_folder)
-        .on_input(on_folder_change)
+        .on_input(SettingsMessage::FolderChanged)
         .padding([6, 8])
         .width(260)
         .style(styles::transparent_text_input_style);
@@ -172,7 +202,7 @@ where
     let browse_btn = button(text("Browse").size(13).color(colors::TEXT_PRIMARY))
         .padding([8, 16])
         .style(styles::ghost_button_style)
-        .on_press(on_browse_folder);
+        .on_press(SettingsMessage::BrowseFolderPressed);
 
     let folder_control = row![folder_box, browse_btn].spacing(8).align_y(Alignment::Center);
 
@@ -182,11 +212,10 @@ where
         folder_control.into(),
     );
 
-    // Simultaneous downloads stepper [-] 3 [+]
     let minus_btn = button(text("-").size(14).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY))
         .padding([4, 12])
         .style(styles::ghost_button_style)
-        .on_press(on_stepper_decrement);
+        .on_press(SettingsMessage::StepperDecrement);
 
     let count_text = text(model.simultaneous_downloads.to_string())
         .size(13)
@@ -201,7 +230,7 @@ where
     let plus_btn = button(text("+").size(14).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY))
         .padding([4, 12])
         .style(styles::ghost_button_style)
-        .on_press(on_stepper_increment);
+        .on_press(SettingsMessage::StepperIncrement);
 
     let stepper_control = container(
         row![minus_btn, count_box, plus_btn]
@@ -224,15 +253,14 @@ where
     let item_notifications = setting_row(
         "Show notifications",
         "Alerts for completed or failed downloads",
-        custom_switch(model.show_notifications, model.show_notifications_anim, on_toggle_notifications),
+        custom_switch(model.show_notifications, model.show_notifications_anim, SettingsMessage::ToggleNotifications),
     );
 
-    // Notification sound pick_list dropdown
     let sounds = vec!["Default".to_string(), "Chime".to_string(), "Mute".to_string()];
     let sound_dropdown = pick_list(
         sounds,
         Some(model.notification_sound.clone()),
-        on_sound_change,
+        SettingsMessage::SoundChanged,
     )
     .padding([8, 12])
     .width(240);
@@ -243,7 +271,6 @@ where
         sound_dropdown.into(),
     );
 
-    // Section Divider
     let section_divider = container(Space::with_height(1))
         .width(Length::Fill)
         .height(1)
@@ -252,7 +279,6 @@ where
             ..Default::default()
         });
 
-    // Updates Section
     let updates_header = text("UPDATES")
         .size(11)
         .font(styles::BOLD_FONT)
@@ -261,13 +287,13 @@ where
     let item_updates_toggle = setting_row(
         "Check for updates automatically",
         "",
-        custom_switch(model.auto_check_updates, model.auto_check_updates_anim, on_toggle_updates),
+        custom_switch(model.auto_check_updates, model.auto_check_updates_anim, SettingsMessage::ToggleUpdates),
     );
 
     let check_updates_btn = button(text("Check for Updates").size(13).color(colors::TEXT_PRIMARY))
         .padding([8, 16])
         .style(styles::ghost_button_style)
-        .on_press(on_check_updates);
+        .on_press(SettingsMessage::CheckUpdatesPressed);
 
     let item_version = setting_row(
         "Current version",
@@ -292,7 +318,6 @@ where
     .spacing(16)
     .padding([20, 24]);
 
-    // 3. Card Footer with Reset to Defaults & Save Changes
     let footer_divider = container(Space::with_height(1))
         .width(Length::Fill)
         .height(1)
@@ -303,12 +328,12 @@ where
 
     let reset_btn = button(text("Reset to Defaults").size(13).color(colors::TEXT_MUTED))
         .style(styles::icon_button_style)
-        .on_press(on_reset_defaults);
+        .on_press(SettingsMessage::ResetDefaultsPressed);
 
     let save_btn = button(text("Save Changes").size(14).font(styles::BOLD_FONT).color(colors::BACKGROUND))
         .padding([10, 20])
         .style(styles::primary_button_style)
-        .on_press(on_save_changes);
+        .on_press(SettingsMessage::SaveChangesPressed);
 
     let footer_row = row![
         reset_btn,
@@ -318,7 +343,6 @@ where
     .padding([16, 24])
     .align_y(Alignment::Center);
 
-    // Assembly Settings Card: Constrained to 820px max width
     let card_content = column![
         tab_bar,
         tab_divider,
@@ -339,14 +363,11 @@ where
         .into()
 }
 
-fn custom_switch<'a, Message>(
-    is_on: bool,
+fn custom_switch<'a>(
+    _is_on: bool,
     anim_progress: f32,
-    on_toggle: impl Fn(bool) -> Message + 'a,
-) -> Element<'a, Message>
-where
-    Message: 'a + Clone + 'static,
-{
+    on_toggle: impl Fn(bool) -> SettingsMessage + 'a,
+) -> Element<'a, SettingsMessage> {
     let track_bg = if anim_progress > 0.5 {
         colors::PRIMARY
     } else {
@@ -392,22 +413,20 @@ where
         ..Default::default()
     });
 
+    let target_state = anim_progress <= 0.5;
+
     button(track)
         .style(styles::icon_button_style)
         .padding(0)
-        .on_press(on_toggle(!is_on))
+        .on_press(on_toggle(target_state))
         .into()
 }
 
-fn tab_item<'a, Message>(
+fn tab_item<'a>(
     label: &'static str,
     tab: SettingsTab,
     active_tab: SettingsTab,
-    on_select: impl Fn(SettingsTab) -> Message + 'a,
-) -> Element<'a, Message>
-where
-    Message: 'a + Clone + 'static,
-{
+) -> Element<'a, SettingsMessage> {
     let is_active = tab == active_tab;
 
     let label_text = text(label)
@@ -427,18 +446,15 @@ where
 
     button(tab_col)
         .style(styles::icon_button_style)
-        .on_press(on_select(tab))
+        .on_press(SettingsMessage::TabSelected(tab))
         .into()
 }
 
-fn setting_row<'a, Message>(
+fn setting_row<'a>(
     title: &'static str,
     description: &'static str,
-    control: Element<'a, Message>,
-) -> Element<'a, Message>
-where
-    Message: 'a + Clone + 'static,
-{
+    control: Element<'a, SettingsMessage>,
+) -> Element<'a, SettingsMessage> {
     let title_text = text(title).size(14).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY);
 
     let left_col = if description.is_empty() {

@@ -16,10 +16,8 @@ pub fn toolbar_view<'a, Message>(
 where
     Message: 'a + Clone + 'static,
 {
-    // Left side: Title
     let title_text = text(title).size(22).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY);
 
-    // Single unified search bar component (320px wide) with left magnifying glass icon
     let search_icon = icon(icons::ICON_SEARCH).size(14).color(colors::TEXT_MUTED);
     let search_input_widget = text_input("Search downloads...", search_text)
         .on_input(on_search_changed)
@@ -44,7 +42,6 @@ where
         ..Default::default()
     });
 
-    // Global speed metric badge: Header "Active / Speed" above "3 Active · 12.4 MB/s"
     let metric_header = text("Active / Speed").size(10).color(colors::TEXT_MUTED);
     let metric_val = row![
         text(format!("{} Active  ·  ", active_count)).size(13).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY),
@@ -53,7 +50,6 @@ where
 
     let speed_badge = column![metric_header, metric_val].spacing(1).align_x(Alignment::End);
 
-    // "+ Add URL" button
     let add_icon = icon(icons::ICON_PLUS).size(14).color(colors::BACKGROUND);
     let add_text = text("Add URL").size(14).font(styles::BOLD_FONT).color(colors::BACKGROUND);
 
@@ -66,7 +62,6 @@ where
     .style(styles::primary_button_style)
     .on_press(on_add_url_pressed);
 
-    // Vertical Divider Line |
     let divider = container(Space::with_width(1))
         .width(1)
         .height(24)
@@ -75,7 +70,6 @@ where
             ..Default::default()
         });
 
-    // Top Right Icon Buttons: Notification Bell & Settings Gear
     let bell_btn = button(
         icon(icons::ICON_BELL).size(16).color(colors::TEXT_MUTED)
     )

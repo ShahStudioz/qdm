@@ -13,7 +13,6 @@ pub fn download_item_view<'a, Message>(
 where
     Message: 'a + Clone + 'static,
 {
-    // 1. File Icon & Box Styling based on type and state
     let (file_icon_char, icon_color, box_bg) = match item.file_type {
         FileType::Media => (icons::ICON_DISC, colors::PRIMARY, colors::SURFACE_HIGH),
         FileType::Archive => (icons::ICON_ZIP, colors::SUCCESS, colors::SURFACE_HIGH),
@@ -41,7 +40,6 @@ where
         ..Default::default()
     });
 
-    // 2. Top Header Row: Filename + Badge Pill + Action Buttons (top right)
     let filename_text = text(&item.filename)
         .size(15)
         .font(styles::BOLD_FONT)
@@ -49,7 +47,6 @@ where
 
     let mut header_left = row![filename_text].spacing(10).align_y(Alignment::Center);
 
-    // Optional State Badge Pill next to filename
     match &item.state {
         DownloadState::Completed => {
             let badge = container(
@@ -90,7 +87,6 @@ where
         _ => {}
     }
 
-    // Top Right Action Buttons
     let item_id = item.id;
     let actions_row: Element<Message> = match &item.state {
         DownloadState::Downloading { .. } => {
@@ -135,7 +131,6 @@ where
     ]
     .align_y(Alignment::Center);
 
-    // 3. Second Row: URL & optional Error message
     let url_text = text(&item.url)
         .size(12)
         .font(styles::MONO_FONT)
@@ -144,7 +139,7 @@ where
     let second_row_col: Element<Message> = if let DownloadState::Failed { error, .. } = &item.state {
         let err_row = row![
             icon(icons::ICON_WARN).size(13).color(colors::ERROR),
-            text(format!("Connection timed out after {}", error))
+            text(format!("Error: {}", error))
                 .size(12)
                 .color(colors::ERROR),
         ]
@@ -156,7 +151,6 @@ where
         url_text.into()
     };
 
-    // 4. Third Row: Progress Bar section
     let (progress_val, bar_color, size_detail, speed_eta_col) = match &item.state {
         DownloadState::Downloading { progress, speed, eta } => (
             *progress,
@@ -170,7 +164,7 @@ where
         DownloadState::Completed => (
             100.0,
             colors::SUCCESS,
-            "245 MB  ·  Today, 14:32".to_string(),
+            format!("{}  ·  Completed", item.size_total),
             None,
         ),
         DownloadState::Paused { progress } => (
@@ -230,7 +224,6 @@ where
         progress_bar_col.into()
     };
 
-    // Right Column assembly (Main Card Content)
     let card_content = column![
         top_row,
         Space::with_height(4),
@@ -248,7 +241,6 @@ where
     .spacing(16)
     .align_y(Alignment::Start);
 
-    // Apply Card Container Style based on State
     let card_container = container(card_layout)
         .width(Length::Fill)
         .padding([16, 20])

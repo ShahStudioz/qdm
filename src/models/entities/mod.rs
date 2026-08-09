@@ -1,2 +1,2 @@
 pub mod download;
-pub mod entities;
+pub mod setting;

@@ -2,7 +2,7 @@ use iced::widget::{column, container, scrollable, text, Space};
 use iced::{Alignment, Element, Length};
 use crate::models::download::DownloadItem;
 use crate::theme::{colors, styles};
-use crate::views::download_item::download_item_view;
+use crate::views::downloads::download_item::download_item_view;
 
 pub fn download_list_view<'a, Message>(
     items: impl IntoIterator<Item = &'a DownloadItem>,
