@@ -5,6 +5,7 @@ mod icons;
 mod models;
 mod theme;
 mod views;
+mod services;
 
 use app::QdmApp;
 

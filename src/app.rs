@@ -1,12 +1,13 @@
-use iced::widget::{column, container, row, stack};
-use iced::{Element, Length, Subscription, Theme};
 use crate::models::download::{DownloadItem, DownloadState, FileType};
 use crate::theme::colors;
-use crate::views::add_dialog::{add_dialog_view, AddDialogModel};
+use crate::views;
+use crate::views::add_dialog::AddDialogModel;
 use crate::views::download_list::download_list_view;
+use crate::views::settings::{settings_view, SettingsModel, SettingsTab};
 use crate::views::sidebar::{sidebar_view, NavFilter};
 use crate::views::toolbar::toolbar_view;
-use crate::views::settings::{settings_view, SettingsModel, SettingsTab};
+use iced::widget::{column, container, row, stack};
+use iced::{Element, Length, Subscription, Task, Theme};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -36,15 +37,7 @@ pub enum Message {
     SaveChangesPressed,
 
     // Add Dialog Messages
-    CloseAddDialog,
-    AddUrlChanged(String),
-    AddFilenameChanged(String),
-    AddSaveToChanged(String),
-    AddBrowseFolderPressed,
-    ToggleAdvancedOptions,
-    AddMaxConnectionsChanged(String),
-    AddSpeedLimitChanged(String),
-    SubmitNewDownload,
+    AddDialogueModalMessages(views::add_dialog::AddDialogueModalMessage),
 }
 
 pub struct QdmApp {
@@ -64,7 +57,8 @@ impl Default for QdmApp {
                 DownloadItem {
                     id: 1,
                     filename: "ubuntu-24.04-desktop-amd64.iso".to_string(),
-                    url: "https://releases.ubuntu.com/24.04/ubuntu-24.04-desktop-amd64.iso".to_string(),
+                    url: "https://releases.ubuntu.com/24.04/ubuntu-24.04-desktop-amd64.iso"
+                        .to_string(),
                     size_downloaded: "3.2 GB".to_string(),
                     size_total: "4.7 GB".to_string(),
                     state: DownloadState::Downloading {
@@ -125,7 +119,7 @@ impl Default for QdmApp {
 }
 
 impl QdmApp {
-    pub fn update(&mut self, message: Message) {
+    pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Tick => {
                 self.settings.tick_animation();
@@ -137,6 +131,7 @@ impl QdmApp {
                 self.search_query = query;
             }
             Message::AddUrlPressed => {
+                self.add_dialog.reset();
                 self.add_dialog.is_open = true;
             }
             Message::NotificationPressed => {
@@ -222,73 +217,48 @@ impl QdmApp {
             }
 
             // Add Dialog Handlers
-            Message::CloseAddDialog => {
-                self.add_dialog.is_open = false;
-            }
-            Message::AddUrlChanged(url) => {
-                self.add_dialog.url = url.clone();
-                // Auto-detect filename from URL if filename field is empty or auto-updating
-                if let Some(name) = url.split('/').last() {
-                    if !name.is_empty() && name.contains('.') {
-                        self.add_dialog.filename = name.to_string();
-                    }
-                }
-            }
-            Message::AddFilenameChanged(filename) => {
-                self.add_dialog.filename = filename;
-            }
-            Message::AddSaveToChanged(save_to) => {
-                self.add_dialog.save_to = save_to;
-            }
-            Message::AddBrowseFolderPressed => {
-                println!("[QDM] Add Dialog browse folder clicked");
-            }
-            Message::ToggleAdvancedOptions => {
-                self.add_dialog.is_advanced_expanded = !self.add_dialog.is_advanced_expanded;
-            }
-            Message::AddMaxConnectionsChanged(val) => {
-                self.add_dialog.max_connections = val;
-            }
-            Message::AddSpeedLimitChanged(val) => {
-                self.add_dialog.speed_limit = val;
-            }
-            Message::SubmitNewDownload => {
-                let filename = if self.add_dialog.filename.is_empty() {
-                    "download-file.zip".to_string()
+            Message::AddDialogueModalMessages(views::add_dialog::AddDialogueModalMessage::SubmitNewDownload) => {
+                let filename = if self.add_dialog.filename.trim().is_empty() {
+                    "download.file".to_string()
                 } else {
-                    self.add_dialog.filename.clone()
+                    self.add_dialog.filename.trim().to_string()
                 };
 
-                let url = if self.add_dialog.url.is_empty() {
-                    "https://example.com/file.zip".to_string()
-                } else {
-                    self.add_dialog.url.clone()
-                };
+                let size_total = self
+                    .add_dialog
+                    .download_file_metadata
+                    .as_ref()
+                    .and_then(|m| m.content_length)
+                    .map(views::add_dialog::format_bytes)
+                    .unwrap_or_else(|| "Unknown".to_string());
 
-                let new_id = (self.downloads.iter().map(|d| d.id).max().unwrap_or(0)) + 1;
+                let file_type = FileType::from_filename(&filename);
+                let new_id = self.downloads.iter().map(|d| d.id).max().unwrap_or(0) + 1;
 
-                self.downloads.insert(
-                    0,
-                    DownloadItem {
-                        id: new_id,
-                        filename,
-                        url,
-                        size_downloaded: "0.0 MB".to_string(),
-                        size_total: "120.0 MB".to_string(),
-                        state: DownloadState::Downloading {
-                            progress: 5.0,
-                            speed: "3.2 MB/s".to_string(),
-                            eta: "45s".to_string(),
-                        },
-                        file_type: FileType::Archive,
+                let new_item = DownloadItem {
+                    id: new_id,
+                    filename,
+                    url: self.add_dialog.url.clone(),
+                    size_downloaded: "0 B".to_string(),
+                    size_total,
+                    state: DownloadState::Downloading {
+                        progress: 0.0,
+                        speed: "0 B/s".to_string(),
+                        eta: "Connecting...".to_string(),
                     },
-                );
+                    file_type,
+                };
 
+                self.downloads.insert(0, new_item);
                 self.add_dialog.is_open = false;
-                self.add_dialog.url.clear();
-                self.add_dialog.filename.clear();
+                self.add_dialog.reset();
+            }
+            Message::AddDialogueModalMessages(message) => {
+                return views::add_dialog::update(&mut self.add_dialog, message)
+                    .map(Message::AddDialogueModalMessages);
             }
         }
+        Task::none()
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
@@ -405,10 +375,14 @@ impl QdmApp {
         };
 
         // Right side layout: Toolbar + Main Content
-        let right_content = column![toolbar, main_content].width(Length::Fill).height(Length::Fill);
+        let right_content = column![toolbar, main_content]
+            .width(Length::Fill)
+            .height(Length::Fill);
 
         // Overall root layout: Sidebar + Right Content
-        let root_layout = row![sidebar, right_content].width(Length::Fill).height(Length::Fill);
+        let root_layout = row![sidebar, right_content]
+            .width(Length::Fill)
+            .height(Length::Fill);
 
         let base_view = container(root_layout)
             .width(Length::Fill)
@@ -421,19 +395,9 @@ impl QdmApp {
 
         // 4. Modal Overlay Stack if Add Dialog is open
         if self.add_dialog.is_open {
-            let dialog_modal = add_dialog_view(
-                &self.add_dialog,
-                Message::CloseAddDialog,
-                Message::AddUrlChanged,
-                Message::AddFilenameChanged,
-                Message::AddSaveToChanged,
-                Message::AddBrowseFolderPressed,
-                Message::ToggleAdvancedOptions,
-                Message::AddMaxConnectionsChanged,
-                Message::AddSpeedLimitChanged,
-                Message::CloseAddDialog,
-                Message::SubmitNewDownload,
-            );
+            // Map the dialog's local Message enum to the parent's Message enum
+            let dialog_modal =
+                views::add_dialog::view(&self.add_dialog).map(Message::AddDialogueModalMessages);
 
             stack![base_view, dialog_modal].into()
         } else {

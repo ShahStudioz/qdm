@@ -28,6 +28,7 @@ pub const ICON_SEARCH: char = '\u{f002}';        // fa-magnifying-glass
 pub const ICON_PLUS: char = '\u{f067}';          // fa-plus
 
 // Action Buttons & Modal Icons
+pub const ICON_PASTE: char = '\u{f0ea}';         // fa-paste
 pub const ICON_PAUSE: char = '\u{f04c}';         // fa-pause
 pub const ICON_PLAY: char = '\u{f04b}';          // fa-play
 pub const ICON_CANCEL: char = '\u{f00d}';        // fa-xmark

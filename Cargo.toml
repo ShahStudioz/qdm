@@ -6,3 +6,6 @@ description = "Quick Download Manager - Modern Open-Source Downloader in Rust & 
 
 [dependencies]
 iced = { version = "0.13", features = ["tokio"] }
+reqwest = "0.13.4"
+# sea-orm = "2.0.0"
+sea-orm = { version = "2.0.0", features = [ "sqlx-sqlite", "runtime-tokio-rustls", "macros" ] }
