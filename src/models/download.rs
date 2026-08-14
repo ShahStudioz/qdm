@@ -1,18 +1,64 @@
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_connections() -> u32 {
+    8
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DownloadUrl {
+    pub url: String,
+    #[serde(default)]
+    pub status_code: Option<u16>,
+    #[serde(default)]
+    pub downloaded_bytes: u64,
+    #[serde(default)]
+    pub speed_bps: u64,
+    #[serde(default = "default_true")]
+    pub is_active: bool,
+    #[serde(default)]
+    pub last_checked_at: Option<u64>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+impl DownloadUrl {
+    pub fn new(url: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            status_code: None,
+            downloaded_bytes: 0,
+            speed_bps: 0,
+            is_active: true,
+            last_checked_at: None,
+            error: None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DownloadState {
+    FetchingMetadata,
+    Queued,
     Downloading {
-        progress: f32, // 0.0 to 100.0
-        speed: String,
-        eta: String,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
+        speed_bps: u64,
+        eta_secs: Option<u64>,
     },
     Completed,
     Paused {
-        progress: f32,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
     },
     Failed {
-        progress: f32,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
         error: String,
     },
 }
@@ -71,17 +117,133 @@ impl FileType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DownloadItem {
     pub id: usize,
     pub filename: String,
-    pub url: String,
+    pub primary_url: DownloadUrl,
+    #[serde(default)]
+    pub mirror_urls: Vec<DownloadUrl>,
     #[serde(default)]
     pub save_path: String,
-    pub size_downloaded: String,
-    pub size_total: String,
+    #[serde(default)]
+    pub downloaded_bytes: u64,
+    #[serde(default)]
+    pub total_bytes: Option<u64>,
     pub state: DownloadState,
     pub file_type: FileType,
     #[serde(default)]
+    pub resumable: bool,
+    #[serde(default = "default_connections")]
+    pub max_connections: u32,
+    #[serde(default)]
+    pub speed_limit_bps: Option<u64>,
+    #[serde(default)]
     pub created_at: u64,
+    #[serde(default)]
+    pub updated_at: u64,
+    #[serde(default)]
+    pub completed_at: Option<u64>,
+}
+
+impl DownloadItem {
+    pub fn progress(&self) -> f32 {
+        match &self.state {
+            DownloadState::Completed => 100.0,
+            DownloadState::FetchingMetadata | DownloadState::Queued => 0.0,
+            DownloadState::Downloading { downloaded_bytes, total_bytes, .. }
+            | DownloadState::Paused { downloaded_bytes, total_bytes }
+            | DownloadState::Failed { downloaded_bytes, total_bytes, .. } => {
+                if let Some(total) = total_bytes {
+                    if *total > 0 {
+                        ((*downloaded_bytes as f64 / *total as f64) * 100.0) as f32
+                    } else {
+                        0.0
+                    }
+                } else if self.downloaded_bytes > 0 {
+                    if let Some(total) = self.total_bytes {
+                        if total > 0 {
+                            ((self.downloaded_bytes as f64 / total as f64) * 100.0) as f32
+                        } else {
+                            0.0
+                        }
+                    } else {
+                        0.0
+                    }
+                } else {
+                    0.0
+                }
+            }
+        }
+    }
+
+    pub fn formatted_size_progress(&self) -> String {
+        let downloaded = format_bytes(self.downloaded_bytes);
+        match self.total_bytes {
+            Some(total) => format!("{} / {}", downloaded, format_bytes(total)),
+            None => format!("{} / Unknown", downloaded),
+        }
+    }
+
+    pub fn formatted_total_size(&self) -> String {
+        match self.total_bytes {
+            Some(total) => format_bytes(total),
+            None => "Unknown size".to_string(),
+        }
+    }
+
+    pub fn formatted_downloaded_size(&self) -> String {
+        format_bytes(self.downloaded_bytes)
+    }
+
+    pub fn get_url(&self) -> &str {
+        &self.primary_url.url
+    }
+
+    pub fn active_mirrors_count(&self) -> usize {
+        self.mirror_urls.iter().filter(|m| m.is_active).count()
+    }
+
+    pub fn total_mirrors_count(&self) -> usize {
+        self.mirror_urls.len()
+    }
+}
+
+pub fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    const TB: u64 = GB * 1024;
+
+    if bytes >= TB {
+        format!("{:.2} TB", bytes as f64 / TB as f64)
+    } else if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+pub fn format_speed(bytes_per_sec: u64) -> String {
+    format!("{}/s", format_bytes(bytes_per_sec))
+}
+
+pub fn format_eta(eta_secs: u64) -> String {
+    if eta_secs == 0 {
+        "0s".to_string()
+    } else if eta_secs < 60 {
+        format!("{}s", eta_secs)
+    } else if eta_secs < 3600 {
+        let mins = eta_secs / 60;
+        let secs = eta_secs % 60;
+        format!("{}m {:02}s", mins, secs)
+    } else {
+        let hours = eta_secs / 3600;
+        let mins = (eta_secs % 3600) / 60;
+        format!("{}h {:02}m", hours, mins)
+    }
 }

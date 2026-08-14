@@ -21,6 +21,26 @@ fn default_simultaneous_downloads() -> usize {
     3
 }
 
+fn default_max_connections() -> usize {
+    8
+}
+
+fn default_max_threads() -> usize {
+    4
+}
+
+fn default_retry_count() -> u32 {
+    3
+}
+
+fn default_timeout_seconds() -> u64 {
+    30
+}
+
+fn default_user_agent() -> String {
+    "QDM/0.1.0 (Quick Download Manager)".to_string()
+}
+
 fn default_notification_sound() -> String {
     "Default".to_string()
 }
@@ -29,6 +49,7 @@ fn default_notification_sound() -> String {
 pub struct SettingsModel {
     #[serde(default)]
     pub active_tab: SettingsTab,
+
     #[serde(default)]
     pub launch_at_startup: bool,
     #[serde(skip)]
@@ -41,8 +62,30 @@ pub struct SettingsModel {
 
     #[serde(default = "crate::core::utils::paths::get_default_download_dir")]
     pub download_folder: String,
+
     #[serde(default = "default_simultaneous_downloads")]
     pub simultaneous_downloads: usize,
+
+    #[serde(default = "default_max_connections")]
+    pub max_connections: usize,
+
+    #[serde(default = "default_max_threads")]
+    pub max_threads: usize,
+
+    #[serde(default)]
+    pub speed_limit_kbps: usize,
+
+    #[serde(default = "default_retry_count")]
+    pub retry_count: u32,
+
+    #[serde(default = "default_timeout_seconds")]
+    pub timeout_seconds: u64,
+
+    #[serde(default = "default_user_agent")]
+    pub user_agent: String,
+
+    #[serde(default = "default_true")]
+    pub auto_start_downloads: bool,
 
     #[serde(default = "default_true")]
     pub show_notifications: bool,
@@ -70,6 +113,13 @@ impl Default for SettingsModel {
 
             download_folder: crate::core::utils::paths::get_default_download_dir(),
             simultaneous_downloads: 3,
+            max_connections: 8,
+            max_threads: 4,
+            speed_limit_kbps: 0,
+            retry_count: 3,
+            timeout_seconds: 30,
+            user_agent: "QDM/0.1.0 (Quick Download Manager)".to_string(),
+            auto_start_downloads: true,
 
             show_notifications: true,
             show_notifications_anim: 1.0,

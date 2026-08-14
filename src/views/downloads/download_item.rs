@@ -1,7 +1,7 @@
 use iced::widget::{button, column, container, progress_bar, row, text, Space};
 use iced::{Alignment, Element, Length};
 use crate::icons::{self, icon};
-use crate::models::download::{DownloadItem, DownloadState, FileType};
+use crate::models::download::{format_eta, format_speed, DownloadItem, DownloadState, FileType};
 use crate::theme::{colors, styles};
 
 pub fn download_item_view<'a, Message>(
@@ -9,6 +9,7 @@ pub fn download_item_view<'a, Message>(
     on_toggle_pause: impl Fn(usize) -> Message + 'a,
     on_cancel: impl Fn(usize) -> Message + 'a,
     on_open_folder: impl Fn(usize) -> Message + 'a,
+    on_open_mirrors: impl Fn(usize) -> Message + 'a,
 ) -> Element<'a, Message>
 where
     Message: 'a + Clone + 'static,
@@ -48,6 +49,35 @@ where
     let mut header_left = row![filename_text].spacing(10).align_y(Alignment::Center);
 
     match &item.state {
+        DownloadState::FetchingMetadata => {
+            let badge = container(
+                row![
+                    icon(icons::ICON_SPINNER).size(10).color(colors::BACKGROUND),
+                    text("FETCHING INFO").size(10).font(styles::BOLD_FONT).color(colors::BACKGROUND),
+                ]
+                .spacing(4)
+                .align_y(Alignment::Center),
+            )
+            .padding([2, 8])
+            .style(|_| container::Style {
+                background: Some(iced::Background::Color(colors::PRIMARY)),
+                border: iced::Border { radius: 10.0.into(), ..Default::default() },
+                ..Default::default()
+            });
+            header_left = header_left.push(badge);
+        }
+        DownloadState::Queued => {
+            let badge = container(
+                text("QUEUED").size(10).font(styles::BOLD_FONT).color(colors::BACKGROUND)
+            )
+            .padding([2, 8])
+            .style(|_| container::Style {
+                background: Some(iced::Background::Color(colors::PRIMARY)),
+                border: iced::Border { radius: 10.0.into(), ..Default::default() },
+                ..Default::default()
+            });
+            header_left = header_left.push(badge);
+        }
         DownloadState::Completed => {
             let badge = container(
                 text("COMPLETED").size(10).font(styles::BOLD_FONT).color(colors::BACKGROUND)
@@ -88,21 +118,42 @@ where
     }
 
     let item_id = item.id;
+
+    // Mirrors badge / button
+    let mirrors_count = item.mirror_urls.len();
+    let mirrors_label = if mirrors_count == 0 {
+        "Mirrors".to_string()
+    } else {
+        format!("{} Mirrors", mirrors_count)
+    };
+
+    let mirrors_btn = button(
+        row![
+            icon(icons::ICON_LINK).size(12).color(if mirrors_count > 0 { colors::PRIMARY } else { colors::TEXT_MUTED }),
+            text(mirrors_label).size(11).color(if mirrors_count > 0 { colors::TEXT_PRIMARY } else { colors::TEXT_MUTED }),
+        ]
+        .spacing(4)
+        .align_y(Alignment::Center),
+    )
+    .padding([4, 8])
+    .style(styles::ghost_button_style)
+    .on_press(on_open_mirrors(item_id));
+
     let actions_row: Element<Message> = match &item.state {
-        DownloadState::Downloading { .. } => {
+        DownloadState::FetchingMetadata | DownloadState::Queued | DownloadState::Downloading { .. } => {
             let pause_btn = button(icon(icons::ICON_PAUSE).size(14))
                 .style(styles::icon_button_style)
                 .on_press(on_toggle_pause(item_id));
             let cancel_btn = button(icon(icons::ICON_CANCEL).size(14))
                 .style(styles::icon_button_style)
                 .on_press(on_cancel(item_id));
-            row![pause_btn, cancel_btn].spacing(12).into()
+            row![mirrors_btn, pause_btn, cancel_btn].spacing(10).align_y(Alignment::Center).into()
         }
         DownloadState::Completed => {
             let folder_btn = button(icon(icons::ICON_FOLDER).size(14))
                 .style(styles::icon_button_style)
                 .on_press(on_open_folder(item_id));
-            row![folder_btn].into()
+            row![mirrors_btn, folder_btn].spacing(10).align_y(Alignment::Center).into()
         }
         DownloadState::Paused { .. } => {
             let play_btn = button(icon(icons::ICON_PLAY).size(14))
@@ -111,7 +162,7 @@ where
             let cancel_btn = button(icon(icons::ICON_CANCEL).size(14))
                 .style(styles::icon_button_style)
                 .on_press(on_cancel(item_id));
-            row![play_btn, cancel_btn].spacing(12).into()
+            row![mirrors_btn, play_btn, cancel_btn].spacing(10).align_y(Alignment::Center).into()
         }
         DownloadState::Failed { .. } => {
             let retry_btn = button(icon(icons::ICON_RETRY).size(14))
@@ -120,7 +171,7 @@ where
             let trash_btn = button(icon(icons::ICON_TRASH).size(14))
                 .style(styles::icon_button_style)
                 .on_press(on_cancel(item_id));
-            row![retry_btn, trash_btn].spacing(12).into()
+            row![mirrors_btn, retry_btn, trash_btn].spacing(10).align_y(Alignment::Center).into()
         }
     };
 
@@ -131,7 +182,7 @@ where
     ]
     .align_y(Alignment::Center);
 
-    let url_text = text(&item.url)
+    let url_text = text(item.get_url())
         .size(12)
         .font(styles::MONO_FONT)
         .color(colors::TEXT_MUTED);
@@ -151,35 +202,61 @@ where
         url_text.into()
     };
 
-    let (progress_val, bar_color, size_detail, speed_eta_col) = match &item.state {
-        DownloadState::Downloading { progress, speed, eta } => (
-            *progress,
+    let progress_val = item.progress();
+
+    let (bar_color, size_detail, speed_eta_col) = match &item.state {
+        DownloadState::FetchingMetadata => (
             colors::PRIMARY,
-            format!("{} / {}", item.size_downloaded, item.size_total),
-            Some(column![
-                text(speed).size(13).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY),
-                text(format!("{} left", eta)).size(11).color(colors::TEXT_MUTED),
-            ].align_x(Alignment::End)),
+            "Resolving file metadata in background...".to_string(),
+            Some(
+                column![
+                    text("Connecting...").size(13).font(styles::BOLD_FONT).color(colors::PRIMARY),
+                    text("Fetching info").size(11).color(colors::TEXT_MUTED),
+                ]
+                .align_x(Alignment::End),
+            ),
+        ),
+        DownloadState::Queued => (
+            colors::PRIMARY,
+            item.formatted_size_progress(),
+            Some(
+                column![
+                    text("Queued").size(13).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY),
+                    text("Waiting...").size(11).color(colors::TEXT_MUTED),
+                ]
+                .align_x(Alignment::End),
+            ),
+        ),
+        DownloadState::Downloading { speed_bps, eta_secs, .. } => (
+            colors::PRIMARY,
+            item.formatted_size_progress(),
+            Some(
+                column![
+                    text(format_speed(*speed_bps)).size(13).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY),
+                    text(format!("{} left", eta_secs.map(format_eta).unwrap_or_else(|| "--".to_string()))).size(11).color(colors::TEXT_MUTED),
+                ]
+                .align_x(Alignment::End),
+            ),
         ),
         DownloadState::Completed => (
-            100.0,
             colors::SUCCESS,
-            format!("{}  ·  Completed", item.size_total),
+            format!("{}  ·  Completed", item.formatted_total_size()),
             None,
         ),
-        DownloadState::Paused { progress } => (
-            *progress,
+        DownloadState::Paused { .. } => (
             colors::WARNING,
-            format!("{} / {}", item.size_downloaded, item.size_total),
-            Some(column![
-                text("0.0 KB/s").size(13).font(styles::BOLD_FONT).color(colors::TEXT_MUTED),
-                text("--").size(11).color(colors::TEXT_MUTED),
-            ].align_x(Alignment::End)),
+            item.formatted_size_progress(),
+            Some(
+                column![
+                    text("0.0 KB/s").size(13).font(styles::BOLD_FONT).color(colors::TEXT_MUTED),
+                    text("--").size(11).color(colors::TEXT_MUTED),
+                ]
+                .align_x(Alignment::End),
+            ),
         ),
-        DownloadState::Failed { progress, .. } => (
-            *progress,
+        DownloadState::Failed { .. } => (
             colors::ERROR,
-            format!("Failed at {:.0}% \n{} / {}", progress, item.size_downloaded, item.size_total),
+            format!("Failed at {:.0}% · {}", progress_val, item.formatted_size_progress()),
             None,
         ),
     };

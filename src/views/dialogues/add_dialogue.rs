@@ -1,5 +1,6 @@
 use crate::core::utils::paths;
 use crate::icons::{self, icon};
+use crate::models::download::format_bytes;
 use crate::services::downloads::download::{DownloadFileMetaData, DownloadService};
 use crate::theme::{colors, styles};
 use iced::widget::{button, column, container, row, text, text_input, Space};
@@ -22,6 +23,7 @@ pub struct AddDialogModel {
     pub is_advanced_expanded: bool,
     pub max_connections: String,
     pub speed_limit: String,
+    pub mirror_urls_text: String,
     pub downloader: DownloadService,
     pub has_error: bool,
     pub error: String,
@@ -39,6 +41,7 @@ impl Default for AddDialogModel {
             is_advanced_expanded: false,
             max_connections: "8".to_string(),
             speed_limit: String::new(),
+            mirror_urls_text: String::new(),
             downloader: DownloadService::default(),
             has_error: false,
             error: String::new(),
@@ -57,6 +60,16 @@ impl AddDialogModel {
         self.error.clear();
         self.download_file_metadata = None;
         self.is_advanced_expanded = false;
+        self.mirror_urls_text.clear();
+    }
+
+    pub fn parsed_mirrors(&self) -> Vec<String> {
+        self.mirror_urls_text
+            .lines()
+            .flat_map(|line| line.split(','))
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty() && (s.starts_with("http://") || s.starts_with("https://")))
+            .collect()
     }
 }
 
@@ -86,13 +99,32 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
         });
 
     let error_view: Element<AddDialogueModalMessage> = if state.has_error && !state.error.is_empty() {
-        container(
+        let err_row = row![
+            icon(icons::ICON_WARN).size(14).color(colors::ERROR),
+            text(&state.error).color(colors::ERROR).size(12),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+
+        let add_anyway_btn = button(
             row![
-                icon(icons::ICON_WARN).size(14).color(colors::ERROR),
-                text(&state.error).color(colors::ERROR).size(12),
+                icon(icons::ICON_PLUS).size(12).color(colors::ERROR),
+                text("Add Anyway (Fetch in Background)").size(11).font(styles::BOLD_FONT).color(colors::ERROR),
             ]
-            .spacing(8)
+            .spacing(4)
             .align_y(Alignment::Center),
+        )
+        .padding([4, 8])
+        .style(styles::ghost_button_style)
+        .on_press(AddDialogueModalMessage::QuickAddDownload);
+
+        container(
+            column![
+                err_row,
+                Space::with_height(4),
+                row![Space::with_width(Length::Fill), add_anyway_btn].align_y(Alignment::Center),
+            ]
+            .spacing(2),
         )
         .padding([10, 14])
         .width(Length::Fill)
@@ -157,7 +189,11 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
 
             let url_group = column![url_label, url_box].spacing(6);
 
-            column![error_view, url_group]
+            let info_note = text("Tip: You can Inspect to configure details, or click 'Quick Add' to start immediately while metadata loads in background.")
+                .size(11)
+                .color(colors::TEXT_MUTED);
+
+            column![error_view, url_group, info_note]
                 .spacing(14)
                 .padding([20, 20])
                 .into()
@@ -279,7 +315,7 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
 
             let advanced_header_btn = button(
                 row![
-                    text("Advanced Options")
+                    text("Advanced Options & Mirrors")
                         .size(13)
                         .color(colors::TEXT_PRIMARY),
                     Space::with_width(Length::Fill),
@@ -314,7 +350,19 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                     .spacing(6)
                     .width(Length::FillPortion(1));
 
-                row![max_conn_col, speed_limit_col].spacing(16).into()
+                let conn_speed_row = row![max_conn_col, speed_limit_col].spacing(16);
+
+                let mirrors_label = form_label("OPTIONAL MIRROR LINKS (COMMA OR NEWLINE SEPARATED)");
+                let mirrors_input = text_input(
+                    "https://mirror1.example.com/file.zip, https://mirror2...",
+                    &state.mirror_urls_text,
+                )
+                .on_input(AddDialogueModalMessage::AddMirrorUrlsChanged)
+                .padding([10, 12])
+                .width(Length::Fill)
+                .style(styles::dark_input_style);
+
+                column![conn_speed_row, Space::with_height(6), mirrors_label, mirrors_input].spacing(6).into()
             } else {
                 Space::with_height(0).into()
             };
@@ -349,44 +397,92 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
         .style(styles::ghost_button_style)
         .on_press(AddDialogueModalMessage::CloseAddDialog);
 
-    let primary_btn: Element<AddDialogueModalMessage> = match state.step {
-        AddDialogStep::UrlInput => button(
-            text("Ok")
-                .size(14)
-                .font(styles::BOLD_FONT)
-                .color(colors::BACKGROUND),
-        )
-        .padding([10, 24])
-        .style(styles::primary_button_style)
-        .on_press(AddDialogueModalMessage::FetchFileInfoPressed)
-        .into(),
+    let footer_buttons: Element<AddDialogueModalMessage> = match state.step {
+        AddDialogStep::UrlInput => {
+            let quick_add_btn = button(
+                row![
+                    icon(icons::ICON_PLUS).size(13).color(colors::TEXT_PRIMARY),
+                    text("Quick Add").size(14).color(colors::TEXT_PRIMARY),
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center),
+            )
+            .padding([10, 16])
+            .style(styles::ghost_button_style)
+            .on_press(AddDialogueModalMessage::QuickAddDownload);
 
-        AddDialogStep::FetchingInfo => button(
-            row![
-                text("Fetching...").size(14).color(colors::TEXT_MUTED),
-            ]
-            .align_y(Alignment::Center),
-        )
-        .padding([10, 20])
-        .style(styles::ghost_button_style)
-        .into(),
+            let inspect_btn = button(
+                row![
+                    icon(icons::ICON_SEARCH).size(13).color(colors::BACKGROUND),
+                    text("Inspect & Configure").size(14).font(styles::BOLD_FONT).color(colors::BACKGROUND),
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center),
+            )
+            .padding([10, 20])
+            .style(styles::primary_button_style)
+            .on_press(AddDialogueModalMessage::FetchFileInfoPressed);
 
-        AddDialogStep::DownloadDetails => button(
-            text("Start Download")
-                .size(14)
-                .font(styles::BOLD_FONT)
-                .color(colors::BACKGROUND),
-        )
-        .padding([10, 20])
-        .style(styles::primary_button_style)
-        .on_press(AddDialogueModalMessage::SubmitNewDownload)
-        .into(),
+            row![Space::with_width(Length::Fill), cancel_btn, quick_add_btn, inspect_btn]
+                .spacing(12)
+                .align_y(Alignment::Center)
+                .into()
+        }
+
+        AddDialogStep::FetchingInfo => {
+            let add_anyway_btn = button(
+                row![
+                    text("Add Without Waiting").size(13).color(colors::TEXT_PRIMARY),
+                ]
+                .align_y(Alignment::Center),
+            )
+            .padding([10, 16])
+            .style(styles::ghost_button_style)
+            .on_press(AddDialogueModalMessage::QuickAddDownload);
+
+            let fetching_badge = button(
+                row![
+                    icon(icons::ICON_SPINNER).size(13).color(colors::TEXT_MUTED),
+                    text("Fetching Info...").size(14).color(colors::TEXT_MUTED),
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center),
+            )
+            .padding([10, 16])
+            .style(styles::ghost_button_style);
+
+            row![Space::with_width(Length::Fill), cancel_btn, add_anyway_btn, fetching_badge]
+                .spacing(12)
+                .align_y(Alignment::Center)
+                .into()
+        }
+
+        AddDialogStep::DownloadDetails => {
+            let start_btn = button(
+                row![
+                    icon(icons::ICON_DOWNLOADING).size(14).color(colors::BACKGROUND),
+                    text("Start Download")
+                        .size(14)
+                        .font(styles::BOLD_FONT)
+                        .color(colors::BACKGROUND),
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center),
+            )
+            .padding([10, 20])
+            .style(styles::primary_button_style)
+            .on_press(AddDialogueModalMessage::SubmitNewDownload);
+
+            row![Space::with_width(Length::Fill), cancel_btn, start_btn]
+                .spacing(12)
+                .align_y(Alignment::Center)
+                .into()
+        }
     };
 
-    let footer_row = row![Space::with_width(Length::Fill), cancel_btn, primary_btn]
-        .spacing(12)
+    let footer_row = container(footer_buttons)
         .padding([16, 20])
-        .align_y(Alignment::Center);
+        .width(Length::Fill);
 
     let modal_card = container(column![
         header_row,
@@ -395,7 +491,7 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
         footer_divider,
         footer_row,
     ])
-    .width(520)
+    .width(540)
     .style(styles::card_style);
 
     container(modal_card)
@@ -433,6 +529,8 @@ pub enum AddDialogueModalMessage {
     ToggleAdvancedOptions,
     AddMaxConnectionsChanged(String),
     AddSpeedLimitChanged(String),
+    AddMirrorUrlsChanged(String),
+    QuickAddDownload,
     SubmitNewDownload,
 }
 
@@ -514,7 +612,10 @@ pub fn update(
         AddDialogueModalMessage::AddSpeedLimitChanged(val) => {
             state.speed_limit = val;
         }
-        AddDialogueModalMessage::SubmitNewDownload => {
+        AddDialogueModalMessage::AddMirrorUrlsChanged(val) => {
+            state.mirror_urls_text = val;
+        }
+        AddDialogueModalMessage::QuickAddDownload | AddDialogueModalMessage::SubmitNewDownload => {
             // Final submission is handled at app level
         }
     }
@@ -550,20 +651,4 @@ pub fn extract_filename(url_str: &str, content_disposition: Option<&str>) -> Str
     }
 
     "download.file".to_string()
-}
-
-pub fn format_bytes(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-
-    if bytes >= GB {
-        format!("{:.2} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
 }

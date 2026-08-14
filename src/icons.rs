@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use iced::widget::{text, Text};
 use iced::Font;
 
@@ -39,6 +41,11 @@ pub const ICON_WARN: char = '\u{f071}';          // fa-triangle-exclamation
 pub const ICON_WAND: char = '\u{f0d0}';          // fa-wand-magic-sparkles
 pub const ICON_CHEVRON_DOWN: char = '\u{f078}';  // fa-chevron-down
 pub const ICON_CHEVRON_UP: char = '\u{f077}';    // fa-chevron-up
+pub const ICON_LINK: char = '\u{f0c1}';          // fa-link
+pub const ICON_SERVER: char = '\u{f233}';        // fa-server
+pub const ICON_CHECK: char = '\u{f00c}';         // fa-check
+pub const ICON_SPINNER: char = '\u{f110}';       // fa-spinner
+pub const ICON_GLOBE: char = '\u{f0ac}';         // fa-globe
 
 // File Type Icons
 pub const ICON_DISC: char = '\u{f51e}';          // fa-compact-disc (ISO)

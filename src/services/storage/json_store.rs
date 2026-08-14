@@ -54,18 +54,22 @@ pub fn insert_download(mut item: DownloadItem) -> Result<DownloadItem, String> {
 }
 
 /// Loads the application settings from `~/qdm/settings.json`.
-/// Returns default settings if the file does not exist.
+/// Creates and saves default settings if the file does not exist yet.
 pub fn load_settings() -> Result<SettingsModel, String> {
     let path = paths::get_settings_json_path();
     if !path.exists() {
-        return Ok(SettingsModel::default());
+        let defaults = SettingsModel::default();
+        let _ = save_settings(&defaults);
+        return Ok(defaults);
     }
 
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read settings file at {:?}: {}", path, e))?;
 
     if content.trim().is_empty() {
-        return Ok(SettingsModel::default());
+        let defaults = SettingsModel::default();
+        let _ = save_settings(&defaults);
+        return Ok(defaults);
     }
 
     let mut settings: SettingsModel = serde_json::from_str(&content)
@@ -101,24 +105,31 @@ fn now_timestamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::download::{DownloadState, FileType};
+    use crate::models::download::{DownloadState, DownloadUrl, FileType};
 
     #[test]
     fn test_download_item_serde() {
         let item = DownloadItem {
             id: 1,
             filename: "ubuntu.iso".to_string(),
-            url: "https://example.com/ubuntu.iso".to_string(),
+            primary_url: DownloadUrl::new("https://example.com/ubuntu.iso"),
+            mirror_urls: vec![DownloadUrl::new("https://mirror.example.com/ubuntu.iso")],
             save_path: "/home/user/Downloads".to_string(),
-            size_downloaded: "500 MB".to_string(),
-            size_total: "2.5 GB".to_string(),
+            downloaded_bytes: 524_288_000,
+            total_bytes: Some(2_684_354_560),
             state: DownloadState::Downloading {
-                progress: 20.0,
-                speed: "5.0 MB/s".to_string(),
-                eta: "5m".to_string(),
+                downloaded_bytes: 524_288_000,
+                total_bytes: Some(2_684_354_560),
+                speed_bps: 5_242_880,
+                eta_secs: Some(300),
             },
             file_type: FileType::Archive,
+            resumable: true,
+            max_connections: 8,
+            speed_limit_bps: None,
             created_at: 1700000000,
+            updated_at: 1700000010,
+            completed_at: None,
         };
 
         let json = serde_json::to_string(&item).expect("Serialize item");
@@ -126,6 +137,10 @@ mod tests {
 
         assert_eq!(item.id, parsed.id);
         assert_eq!(item.filename, parsed.filename);
+        assert_eq!(item.primary_url.url, parsed.primary_url.url);
+        assert_eq!(item.mirror_urls.len(), 1);
+        assert_eq!(item.downloaded_bytes, parsed.downloaded_bytes);
+        assert_eq!(item.total_bytes, parsed.total_bytes);
         assert_eq!(item.save_path, parsed.save_path);
         assert_eq!(item.state, parsed.state);
         assert_eq!(item.file_type, parsed.file_type);
@@ -139,6 +154,11 @@ mod tests {
 
         assert_eq!(settings.download_folder, parsed.download_folder);
         assert_eq!(settings.simultaneous_downloads, parsed.simultaneous_downloads);
+        assert_eq!(settings.max_connections, parsed.max_connections);
+        assert_eq!(settings.max_threads, parsed.max_threads);
+        assert_eq!(settings.retry_count, parsed.retry_count);
+        assert_eq!(settings.timeout_seconds, parsed.timeout_seconds);
+        assert_eq!(settings.user_agent, parsed.user_agent);
         assert_eq!(settings.show_notifications, parsed.show_notifications);
     }
 }

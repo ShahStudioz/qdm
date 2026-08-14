@@ -1,8 +1,9 @@
-use crate::models::download::{DownloadItem, DownloadState, FileType};
+use crate::models::download::{DownloadItem, DownloadState, DownloadUrl, FileType};
+use crate::services::downloads::download::{DownloadFileMetaData, DownloadService};
 use crate::services::storage;
 use crate::theme::colors;
 use crate::views::components::{sidebar, toolbar};
-use crate::views::dialogues::add_dialogue;
+use crate::views::dialogues::{add_dialogue, mirror_dialogue};
 use crate::views::downloads::download_list::download_list_view;
 use crate::views::settings::settings;
 use iced::widget::{column, container, row, stack};
@@ -14,6 +15,7 @@ pub enum Message {
     DownloadsLoaded(Result<Vec<DownloadItem>, String>),
     DownloadSaved(Result<DownloadItem, String>),
     DownloadsPersisted(Result<(), String>),
+    BackgroundMetadataFetched(usize, Result<DownloadFileMetaData, String>),
 
     NavSelected(sidebar::NavFilter),
     SearchChanged(String),
@@ -24,9 +26,11 @@ pub enum Message {
     TogglePause(usize),
     CancelDownload(usize),
     OpenFolder(usize),
+    OpenMirrorsModal(usize),
 
     SettingsMessage(settings::SettingsMessage),
     AddDialogueModalMessages(add_dialogue::AddDialogueModalMessage),
+    MirrorDialogueMessages(mirror_dialogue::MirrorDialogueMessage),
 }
 
 pub struct QdmApp {
@@ -35,6 +39,8 @@ pub struct QdmApp {
     downloads: Vec<DownloadItem>,
     settings: settings::SettingsModel,
     add_dialog: add_dialogue::AddDialogModel,
+    mirror_dialog: mirror_dialogue::MirrorDialogModel,
+    downloader: DownloadService,
 }
 
 impl Default for QdmApp {
@@ -45,6 +51,8 @@ impl Default for QdmApp {
             downloads: Vec::new(),
             settings: settings::SettingsModel::default(),
             add_dialog: add_dialogue::AddDialogModel::default(),
+            mirror_dialog: mirror_dialogue::MirrorDialogModel::default(),
+            downloader: DownloadService::default(),
         }
     }
 }
@@ -96,22 +104,27 @@ impl QdmApp {
             }
             Message::TogglePause(id) => {
                 if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
-                    match item.state {
-                        DownloadState::Downloading { progress, .. } => {
-                            item.state = DownloadState::Paused { progress };
-                        }
-                        DownloadState::Paused { progress } => {
-                            item.state = DownloadState::Downloading {
-                                progress,
-                                speed: "2.4 MB/s".to_string(),
-                                eta: "10m 00s".to_string(),
+                    match &item.state {
+                        DownloadState::Downloading { downloaded_bytes, total_bytes, .. } => {
+                            item.state = DownloadState::Paused {
+                                downloaded_bytes: *downloaded_bytes,
+                                total_bytes: *total_bytes,
                             };
                         }
-                        DownloadState::Failed { .. } => {
+                        DownloadState::Paused { downloaded_bytes, total_bytes } => {
                             item.state = DownloadState::Downloading {
-                                progress: 89.0,
-                                speed: "1.5 MB/s".to_string(),
-                                eta: "2m 15s".to_string(),
+                                downloaded_bytes: *downloaded_bytes,
+                                total_bytes: *total_bytes,
+                                speed_bps: 2_500_000,
+                                eta_secs: Some(120),
+                            };
+                        }
+                        DownloadState::Failed { downloaded_bytes, total_bytes, .. } => {
+                            item.state = DownloadState::Downloading {
+                                downloaded_bytes: *downloaded_bytes,
+                                total_bytes: *total_bytes,
+                                speed_bps: 1_500_000,
+                                eta_secs: Some(60),
                             };
                         }
                         _ => {}
@@ -138,43 +151,129 @@ impl QdmApp {
             Message::OpenFolder(id) => {
                 println!("[QDM] Open folder for item {}", id);
             }
+            Message::OpenMirrorsModal(id) => {
+                if let Some(item) = self.downloads.iter().find(|d| d.id == id) {
+                    self.mirror_dialog.open(
+                        item.id,
+                        item.filename.clone(),
+                        item.primary_url.clone(),
+                        item.mirror_urls.clone(),
+                    );
+                }
+            }
 
             Message::SettingsMessage(msg) => {
                 settings::update(&mut self.settings, msg);
             }
 
             Message::AddDialogueModalMessages(add_dialogue::AddDialogueModalMessage::SubmitNewDownload) => {
+                let url = self.add_dialog.url.trim().to_string();
+                if url.is_empty() {
+                    return Task::none();
+                }
+
                 let filename = if self.add_dialog.filename.trim().is_empty() {
-                    "download.file".to_string()
+                    add_dialogue::extract_filename(&url, None)
                 } else {
                     self.add_dialog.filename.trim().to_string()
                 };
 
-                let size_total = self
+                let total_bytes = self
                     .add_dialog
                     .download_file_metadata
                     .as_ref()
-                    .and_then(|m| m.content_length)
-                    .map(add_dialogue::format_bytes)
-                    .unwrap_or_else(|| "Unknown".to_string());
+                    .and_then(|m| m.content_length);
+
+                let resumable = self
+                    .add_dialog
+                    .download_file_metadata
+                    .as_ref()
+                    .map(|m| m.supports_resume)
+                    .unwrap_or(false);
 
                 let file_type = FileType::from_filename(&filename);
                 let save_path = self.add_dialog.save_to.clone();
 
+                let mirror_urls: Vec<DownloadUrl> = self
+                    .add_dialog
+                    .parsed_mirrors()
+                    .into_iter()
+                    .map(DownloadUrl::new)
+                    .collect();
+
+                let max_connections = self
+                    .add_dialog
+                    .max_connections
+                    .trim()
+                    .parse::<u32>()
+                    .unwrap_or(8);
+
                 let new_item = DownloadItem {
                     id: 0,
                     filename,
-                    url: self.add_dialog.url.clone(),
+                    primary_url: DownloadUrl::new(&url),
+                    mirror_urls,
                     save_path,
-                    size_downloaded: "0 B".to_string(),
-                    size_total,
+                    downloaded_bytes: 0,
+                    total_bytes,
                     state: DownloadState::Downloading {
-                        progress: 0.0,
-                        speed: "0 B/s".to_string(),
-                        eta: "Connecting...".to_string(),
+                        downloaded_bytes: 0,
+                        total_bytes,
+                        speed_bps: 0,
+                        eta_secs: None,
                     },
                     file_type,
+                    resumable,
+                    max_connections,
+                    speed_limit_bps: None,
                     created_at: 0,
+                    updated_at: 0,
+                    completed_at: None,
+                };
+
+                self.add_dialog.is_open = false;
+                self.add_dialog.reset();
+
+                return Task::perform(
+                    async move {
+                        storage::json_store::insert_download(new_item)
+                    },
+                    Message::DownloadSaved,
+                );
+            }
+
+            Message::AddDialogueModalMessages(add_dialogue::AddDialogueModalMessage::QuickAddDownload) => {
+                let url = self.add_dialog.url.trim().to_string();
+                if url.is_empty() {
+                    return Task::none();
+                }
+
+                let filename = add_dialogue::extract_filename(&url, None);
+                let file_type = FileType::from_filename(&filename);
+                let save_path = self.add_dialog.save_to.clone();
+                let mirror_urls: Vec<DownloadUrl> = self
+                    .add_dialog
+                    .parsed_mirrors()
+                    .into_iter()
+                    .map(DownloadUrl::new)
+                    .collect();
+
+                let new_item = DownloadItem {
+                    id: 0,
+                    filename,
+                    primary_url: DownloadUrl::new(&url),
+                    mirror_urls,
+                    save_path,
+                    downloaded_bytes: 0,
+                    total_bytes: None,
+                    state: DownloadState::FetchingMetadata,
+                    file_type,
+                    resumable: false,
+                    max_connections: 8,
+                    speed_limit_bps: None,
+                    created_at: 0,
+                    updated_at: 0,
+                    completed_at: None,
                 };
 
                 self.add_dialog.is_open = false;
@@ -189,11 +288,106 @@ impl QdmApp {
             }
 
             Message::DownloadSaved(Ok(inserted_item)) => {
+                let item_id = inserted_item.id;
+                let url = inserted_item.primary_url.url.clone();
+                let needs_bg_meta = matches!(inserted_item.state, DownloadState::FetchingMetadata) || inserted_item.total_bytes.is_none();
+
                 self.downloads.insert(0, inserted_item);
+
+                if needs_bg_meta {
+                    let downloader = self.downloader.clone();
+                    return Task::perform(
+                        async move {
+                            (item_id, downloader.get_file_meta_data(&url).await)
+                        },
+                        |(id, res)| Message::BackgroundMetadataFetched(id, res),
+                    );
+                }
             }
             Message::DownloadSaved(Err(err)) => {
                 println!("[QDM Storage Error] Failed to save download: {}", err);
             }
+
+            Message::BackgroundMetadataFetched(id, result) => {
+                if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
+                    match result {
+                        Ok(meta) => {
+                            if let Some(len) = meta.content_length {
+                                item.total_bytes = Some(len);
+                            }
+                            item.resumable = meta.supports_resume;
+                            if item.filename == "download.file" {
+                                if let Some(ref cd) = meta.content_disposition {
+                                    let better_name = add_dialogue::extract_filename(&item.primary_url.url, Some(cd));
+                                    if better_name != "download.file" {
+                                        item.filename = better_name;
+                                        item.file_type = FileType::from_filename(&item.filename);
+                                    }
+                                }
+                            }
+                            if matches!(item.state, DownloadState::FetchingMetadata) {
+                                item.state = DownloadState::Downloading {
+                                    downloaded_bytes: item.downloaded_bytes,
+                                    total_bytes: item.total_bytes,
+                                    speed_bps: 0,
+                                    eta_secs: None,
+                                };
+                            }
+                        }
+                        Err(err) => {
+                            println!("[QDM Background Metadata] Warning for item {}: {}", id, err);
+                            if matches!(item.state, DownloadState::FetchingMetadata) {
+                                item.state = DownloadState::Downloading {
+                                    downloaded_bytes: item.downloaded_bytes,
+                                    total_bytes: None,
+                                    speed_bps: 0,
+                                    eta_secs: None,
+                                };
+                            }
+                        }
+                    }
+
+                    let downloads_clone = self.downloads.clone();
+                    return Task::perform(
+                        async move {
+                            storage::json_store::save_downloads(&downloads_clone)
+                        },
+                        Message::DownloadsPersisted,
+                    );
+                }
+            }
+
+            Message::MirrorDialogueMessages(mirror_dialogue::MirrorDialogueMessage::CloseMirrorDialog)
+            | Message::MirrorDialogueMessages(mirror_dialogue::MirrorDialogueMessage::SaveAndClose) => {
+                let target_id = self.mirror_dialog.download_id;
+                if let Some(item) = self.downloads.iter_mut().find(|d| d.id == target_id) {
+                    item.primary_url = self.mirror_dialog.primary_url.clone();
+                    item.mirror_urls = self.mirror_dialog.mirror_urls.clone();
+                }
+                self.mirror_dialog.close();
+
+                let downloads_clone = self.downloads.clone();
+                return Task::perform(
+                    async move {
+                        storage::json_store::save_downloads(&downloads_clone)
+                    },
+                    Message::DownloadsPersisted,
+                );
+            }
+
+            Message::MirrorDialogueMessages(message) => {
+                let task = mirror_dialogue::update(&mut self.mirror_dialog, message)
+                    .map(Message::MirrorDialogueMessages);
+
+                let target_id = self.mirror_dialog.download_id;
+                if let Some(item) = self.downloads.iter_mut().find(|d| d.id == target_id) {
+                    item.primary_url = self.mirror_dialog.primary_url.clone();
+                    item.mirror_urls = self.mirror_dialog.mirror_urls.clone();
+                }
+
+                return task;
+            }
+
             Message::DownloadsPersisted(Err(err)) => {
                 println!("[QDM Storage Error] Failed to persist downloads: {}", err);
             }
@@ -219,7 +413,7 @@ impl QdmApp {
         let downloading_count = self
             .downloads
             .iter()
-            .filter(|d| matches!(d.state, DownloadState::Downloading { .. }))
+            .filter(|d| matches!(d.state, DownloadState::Downloading { .. } | DownloadState::FetchingMetadata | DownloadState::Queued))
             .count();
 
         let completed_count = self
@@ -271,7 +465,7 @@ impl QdmApp {
             let filtered_items = self.downloads.iter().filter(|d| {
                 let matches_filter = match self.current_filter {
                     sidebar::NavFilter::All => true,
-                    sidebar::NavFilter::Downloading => matches!(d.state, DownloadState::Downloading { .. }),
+                    sidebar::NavFilter::Downloading => matches!(d.state, DownloadState::Downloading { .. } | DownloadState::FetchingMetadata | DownloadState::Queued),
                     sidebar::NavFilter::Completed => matches!(d.state, DownloadState::Completed),
                     sidebar::NavFilter::Failed => matches!(d.state, DownloadState::Failed { .. }),
                     sidebar::NavFilter::Scheduled => false,
@@ -284,7 +478,8 @@ impl QdmApp {
                     d.filename
                         .to_lowercase()
                         .contains(&self.search_query.to_lowercase())
-                        || d.url
+                        || d.primary_url
+                            .url
                             .to_lowercase()
                             .contains(&self.search_query.to_lowercase())
                 };
@@ -297,6 +492,7 @@ impl QdmApp {
                 Message::TogglePause,
                 Message::CancelDownload,
                 Message::OpenFolder,
+                Message::OpenMirrorsModal,
             )
         };
 
@@ -322,6 +518,11 @@ impl QdmApp {
                 add_dialogue::view(&self.add_dialog).map(Message::AddDialogueModalMessages);
 
             stack![base_view, dialog_modal].into()
+        } else if self.mirror_dialog.is_open {
+            let mirror_modal =
+                mirror_dialogue::view(&self.mirror_dialog).map(Message::MirrorDialogueMessages);
+
+            stack![base_view, mirror_modal].into()
         } else {
             base_view.into()
         }

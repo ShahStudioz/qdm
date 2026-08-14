@@ -9,6 +9,7 @@ pub fn download_list_view<'a, Message>(
     on_toggle_pause: impl Fn(usize) -> Message + 'a + Clone,
     on_cancel: impl Fn(usize) -> Message + 'a + Clone,
     on_open_folder: impl Fn(usize) -> Message + 'a + Clone,
+    on_open_mirrors: impl Fn(usize) -> Message + 'a + Clone,
 ) -> Element<'a, Message>
 where
     Message: 'a + Clone + 'static,
@@ -23,6 +24,7 @@ where
             on_toggle_pause.clone(),
             on_cancel.clone(),
             on_open_folder.clone(),
+            on_open_mirrors.clone(),
         ));
     }
 

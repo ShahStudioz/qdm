@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use reqwest::{
     header::{CONTENT_DISPOSITION, CONTENT_RANGE, CONTENT_TYPE, LAST_MODIFIED, RANGE},
     Client, StatusCode,
