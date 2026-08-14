@@ -1,5 +1,5 @@
 use crate::models::download::{DownloadItem, DownloadState, FileType};
-use crate::services::database;
+use crate::services::storage;
 use crate::theme::colors;
 use crate::views::components::{sidebar, toolbar};
 use crate::views::dialogues::add_dialogue;
@@ -7,14 +7,13 @@ use crate::views::downloads::download_list::download_list_view;
 use crate::views::settings::settings;
 use iced::widget::{column, container, row, stack};
 use iced::{Element, Length, Subscription, Task, Theme};
-use sea_orm::DatabaseConnection;
 
 #[derive(Debug, Clone)]
 pub enum Message {
     Tick,
-    DbInitialized(Result<DatabaseConnection, String>),
     DownloadsLoaded(Result<Vec<DownloadItem>, String>),
     DownloadSaved(Result<DownloadItem, String>),
+    DownloadsPersisted(Result<(), String>),
 
     NavSelected(sidebar::NavFilter),
     SearchChanged(String),
@@ -31,7 +30,6 @@ pub enum Message {
 }
 
 pub struct QdmApp {
-    db: Option<DatabaseConnection>,
     current_filter: sidebar::NavFilter,
     search_query: String,
     downloads: Vec<DownloadItem>,
@@ -42,7 +40,6 @@ pub struct QdmApp {
 impl Default for QdmApp {
     fn default() -> Self {
         Self {
-            db: None,
             current_filter: sidebar::NavFilter::All,
             search_query: String::new(),
             downloads: Vec::new(),
@@ -54,15 +51,17 @@ impl Default for QdmApp {
 
 impl QdmApp {
     pub fn new() -> (Self, Task<Message>) {
-        let app = Self::default();
+        let initial_settings = storage::json_store::load_settings().unwrap_or_default();
+        let app = Self {
+            settings: initial_settings,
+            ..Default::default()
+        };
 
         let task = Task::perform(
             async {
-                database::db::init_db()
-                    .await
-                    .map_err(|e| format!("DB Error: {}", e))
+                storage::json_store::load_downloads()
             },
-            Message::DbInitialized,
+            Message::DownloadsLoaded,
         );
 
         (app, task)
@@ -73,26 +72,11 @@ impl QdmApp {
             Message::Tick => {
                 self.settings.tick_animation();
             }
-            Message::DbInitialized(Ok(db_conn)) => {
-                self.db = Some(db_conn.clone());
-                let db_clone = db_conn;
-                return Task::perform(
-                    async move {
-                        database::db::load_all_downloads(&db_clone)
-                            .await
-                            .map_err(|e| format!("Load downloads failed: {}", e))
-                    },
-                    Message::DownloadsLoaded,
-                );
-            }
-            Message::DbInitialized(Err(err)) => {
-                println!("[QDM DB ERROR] Failed to initialize DB: {}", err);
-            }
             Message::DownloadsLoaded(Ok(loaded_items)) => {
                 self.downloads = loaded_items;
             }
             Message::DownloadsLoaded(Err(err)) => {
-                println!("[QDM DB ERROR] Failed to load downloads: {}", err);
+                println!("[QDM Storage Error] Failed to load downloads: {}", err);
             }
             Message::NavSelected(filter) => {
                 self.current_filter = filter;
@@ -132,10 +116,24 @@ impl QdmApp {
                         }
                         _ => {}
                     }
+                    let downloads_clone = self.downloads.clone();
+                    return Task::perform(
+                        async move {
+                            storage::json_store::save_downloads(&downloads_clone)
+                        },
+                        Message::DownloadsPersisted,
+                    );
                 }
             }
             Message::CancelDownload(id) => {
                 self.downloads.retain(|d| d.id != id);
+                let downloads_clone = self.downloads.clone();
+                return Task::perform(
+                    async move {
+                        storage::json_store::save_downloads(&downloads_clone)
+                    },
+                    Message::DownloadsPersisted,
+                );
             }
             Message::OpenFolder(id) => {
                 println!("[QDM] Open folder for item {}", id);
@@ -167,6 +165,7 @@ impl QdmApp {
                     id: 0,
                     filename,
                     url: self.add_dialog.url.clone(),
+                    save_path,
                     size_downloaded: "0 B".to_string(),
                     size_total,
                     state: DownloadState::Downloading {
@@ -175,32 +174,30 @@ impl QdmApp {
                         eta: "Connecting...".to_string(),
                     },
                     file_type,
+                    created_at: 0,
                 };
 
                 self.add_dialog.is_open = false;
                 self.add_dialog.reset();
 
-                if let Some(ref db) = self.db {
-                    let db_clone = db.clone();
-                    return Task::perform(
-                        async move {
-                            database::db::insert_download(&db_clone, new_item, save_path)
-                                .await
-                                .map_err(|e| format!("Save download error: {}", e))
-                        },
-                        Message::DownloadSaved,
-                    );
-                } else {
-                    self.downloads.insert(0, new_item);
-                }
+                return Task::perform(
+                    async move {
+                        storage::json_store::insert_download(new_item)
+                    },
+                    Message::DownloadSaved,
+                );
             }
 
             Message::DownloadSaved(Ok(inserted_item)) => {
                 self.downloads.insert(0, inserted_item);
             }
             Message::DownloadSaved(Err(err)) => {
-                println!("[QDM DB ERROR] {}", err);
+                println!("[QDM Storage Error] Failed to save download: {}", err);
             }
+            Message::DownloadsPersisted(Err(err)) => {
+                println!("[QDM Storage Error] Failed to persist downloads: {}", err);
+            }
+            Message::DownloadsPersisted(Ok(())) => {}
 
             Message::AddDialogueModalMessages(message) => {
                 return add_dialogue::update(&mut self.add_dialog, message)

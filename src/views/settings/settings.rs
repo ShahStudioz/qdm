@@ -1,34 +1,60 @@
 use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input, Space};
 use iced::{Alignment, Element, Length};
+use serde::{Deserialize, Serialize};
 use crate::icons::{self, icon};
 use crate::theme::{colors, styles};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum SettingsTab {
+    #[default]
     General,
     Downloads,
     Network,
     Appearance,
 }
 
-#[derive(Debug, Clone)]
+fn default_true() -> bool {
+    true
+}
+
+fn default_simultaneous_downloads() -> usize {
+    3
+}
+
+fn default_notification_sound() -> String {
+    "Default".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SettingsModel {
+    #[serde(default)]
     pub active_tab: SettingsTab,
+    #[serde(default)]
     pub launch_at_startup: bool,
+    #[serde(skip)]
     pub launch_at_startup_anim: f32,
 
+    #[serde(default = "default_true")]
     pub minimize_to_tray: bool,
+    #[serde(skip)]
     pub minimize_to_tray_anim: f32,
 
+    #[serde(default = "crate::core::utils::paths::get_default_download_dir")]
     pub download_folder: String,
+    #[serde(default = "default_simultaneous_downloads")]
     pub simultaneous_downloads: usize,
 
+    #[serde(default = "default_true")]
     pub show_notifications: bool,
+    #[serde(skip)]
     pub show_notifications_anim: f32,
 
+    #[serde(default = "default_notification_sound")]
     pub notification_sound: String,
 
+    #[serde(default = "default_true")]
     pub auto_check_updates: bool,
+    #[serde(skip)]
     pub auto_check_updates_anim: f32,
 }
 
@@ -57,6 +83,13 @@ impl Default for SettingsModel {
 }
 
 impl SettingsModel {
+    pub fn sync_animations(&mut self) {
+        self.launch_at_startup_anim = if self.launch_at_startup { 1.0 } else { 0.0 };
+        self.minimize_to_tray_anim = if self.minimize_to_tray { 1.0 } else { 0.0 };
+        self.show_notifications_anim = if self.show_notifications { 1.0 } else { 0.0 };
+        self.auto_check_updates_anim = if self.auto_check_updates { 1.0 } else { 0.0 };
+    }
+
     pub fn is_animating(&self) -> bool {
         let target_startup = if self.launch_at_startup { 1.0 } else { 0.0 };
         let target_tray = if self.minimize_to_tray { 1.0 } else { 0.0 };
@@ -139,8 +172,10 @@ pub fn update(model: &mut SettingsModel, message: SettingsMessage) {
         }
         SettingsMessage::ResetDefaultsPressed => {
             *model = SettingsModel::default();
+            let _ = crate::services::storage::json_store::save_settings(model);
         }
         SettingsMessage::SaveChangesPressed => {
+            let _ = crate::services::storage::json_store::save_settings(model);
             println!("[QDM] Settings saved: {:?}", model.download_folder);
         }
     }

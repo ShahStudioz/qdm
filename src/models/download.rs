@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, PartialEq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DownloadState {
     Downloading {
         progress: f32, // 0.0 to 100.0
@@ -15,7 +17,7 @@ pub enum DownloadState {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileType {
     Archive,
     Code,
@@ -69,13 +71,17 @@ impl FileType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadItem {
     pub id: usize,
     pub filename: String,
     pub url: String,
+    #[serde(default)]
+    pub save_path: String,
     pub size_downloaded: String,
     pub size_total: String,
     pub state: DownloadState,
     pub file_type: FileType,
+    #[serde(default)]
+    pub created_at: u64,
 }
