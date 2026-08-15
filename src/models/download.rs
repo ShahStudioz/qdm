@@ -117,6 +117,49 @@ impl FileType {
     }
 }
 
+/// Represents an exact contiguous byte range allocated to a chunk worker.
+/// Tracks progress at byte-level accuracy rather than lossy percentages.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChunkState {
+    pub id: usize,
+    #[serde(default)]
+    pub url: String,
+    pub start_byte: u64,
+    pub end_byte: u64,
+    pub current_offset: u64,
+    #[serde(default)]
+    pub is_completed: bool,
+}
+
+impl ChunkState {
+    pub fn new(id: usize, url: impl Into<String>, start_byte: u64, end_byte: u64) -> Self {
+        Self {
+            id,
+            url: url.into(),
+            start_byte,
+            end_byte,
+            current_offset: start_byte,
+            is_completed: false,
+        }
+    }
+
+    pub fn downloaded_bytes(&self) -> u64 {
+        if self.current_offset >= self.start_byte {
+            (self.current_offset - self.start_byte).min(self.total_chunk_bytes())
+        } else {
+            0
+        }
+    }
+
+    pub fn total_chunk_bytes(&self) -> u64 {
+        if self.end_byte >= self.start_byte {
+            (self.end_byte - self.start_byte) + 1
+        } else {
+            0
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DownloadItem {
     pub id: usize,
@@ -138,6 +181,14 @@ pub struct DownloadItem {
     pub max_connections: u32,
     #[serde(default)]
     pub speed_limit_bps: Option<u64>,
+    #[serde(default)]
+    pub etag: Option<String>,
+    #[serde(default)]
+    pub last_modified: Option<String>,
+    #[serde(default)]
+    pub sha256_hash: Option<String>,
+    #[serde(default)]
+    pub chunks: Vec<ChunkState>,
     #[serde(default)]
     pub created_at: u64,
     #[serde(default)]

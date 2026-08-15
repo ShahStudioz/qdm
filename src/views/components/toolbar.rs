@@ -7,7 +7,7 @@ pub fn toolbar_view<'a, Message>(
     title: &'a str,
     search_text: &'a str,
     active_count: usize,
-    total_speed: &'a str,
+    total_speed: impl Into<String>,
     on_search_changed: impl Fn(String) -> Message + 'a,
     on_add_url_pressed: Message,
     on_notification_pressed: Message,
@@ -45,7 +45,7 @@ where
     let metric_header = text("Active / Speed").size(10).color(colors::TEXT_MUTED);
     let metric_val = row![
         text(format!("{} Active  ·  ", active_count)).size(13).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY),
-        text(total_speed).size(13).font(styles::BOLD_FONT).color(colors::PRIMARY),
+        text(total_speed.into()).size(13).font(styles::BOLD_FONT).color(colors::PRIMARY),
     ];
 
     let speed_badge = column![metric_header, metric_val].spacing(1).align_x(Alignment::End);

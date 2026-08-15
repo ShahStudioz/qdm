@@ -1,5 +1,5 @@
 use crate::models::download::{DownloadItem, DownloadState, DownloadUrl, FileType};
-use crate::services::downloads::download::{DownloadFileMetaData, DownloadService};
+use crate::services::downloads::{DownloadEngine, EngineUiEvent, FileMetadata};
 use crate::services::storage;
 use crate::theme::colors;
 use crate::views::components::{sidebar, toolbar};
@@ -15,7 +15,8 @@ pub enum Message {
     DownloadsLoaded(Result<Vec<DownloadItem>, String>),
     DownloadSaved(Result<DownloadItem, String>),
     DownloadsPersisted(Result<(), String>),
-    BackgroundMetadataFetched(usize, Result<DownloadFileMetaData, String>),
+    BackgroundMetadataFetched(usize, Result<FileMetadata, String>),
+    EngineEvent(EngineUiEvent),
 
     NavSelected(sidebar::NavFilter),
     SearchChanged(String),
@@ -40,7 +41,7 @@ pub struct QdmApp {
     settings: settings::SettingsModel,
     add_dialog: add_dialogue::AddDialogModel,
     mirror_dialog: mirror_dialogue::MirrorDialogModel,
-    downloader: DownloadService,
+    engine: DownloadEngine,
 }
 
 impl Default for QdmApp {
@@ -52,7 +53,7 @@ impl Default for QdmApp {
             settings: settings::SettingsModel::default(),
             add_dialog: add_dialogue::AddDialogModel::default(),
             mirror_dialog: mirror_dialogue::MirrorDialogModel::default(),
-            downloader: DownloadService::default(),
+            engine: DownloadEngine::new(),
         }
     }
 }
@@ -102,33 +103,47 @@ impl QdmApp {
             Message::SettingsPressed => {
                 self.current_filter = sidebar::NavFilter::Settings;
             }
-            Message::TogglePause(id) => {
+
+            // --- Download Engine Event Handling ---
+            Message::EngineEvent(EngineUiEvent::ProgressUpdated {
+                id,
+                downloaded_bytes,
+                total_bytes,
+                speed_bps,
+                eta_secs,
+                chunks,
+            }) => {
                 if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
-                    match &item.state {
-                        DownloadState::Downloading { downloaded_bytes, total_bytes, .. } => {
-                            item.state = DownloadState::Paused {
-                                downloaded_bytes: *downloaded_bytes,
-                                total_bytes: *total_bytes,
-                            };
-                        }
-                        DownloadState::Paused { downloaded_bytes, total_bytes } => {
-                            item.state = DownloadState::Downloading {
-                                downloaded_bytes: *downloaded_bytes,
-                                total_bytes: *total_bytes,
-                                speed_bps: 2_500_000,
-                                eta_secs: Some(120),
-                            };
-                        }
-                        DownloadState::Failed { downloaded_bytes, total_bytes, .. } => {
-                            item.state = DownloadState::Downloading {
-                                downloaded_bytes: *downloaded_bytes,
-                                total_bytes: *total_bytes,
-                                speed_bps: 1_500_000,
-                                eta_secs: Some(60),
-                            };
-                        }
-                        _ => {}
+                    item.downloaded_bytes = downloaded_bytes;
+                    if total_bytes.is_some() {
+                        item.total_bytes = total_bytes;
                     }
+                    item.chunks = chunks;
+                    item.state = DownloadState::Downloading {
+                        downloaded_bytes,
+                        total_bytes: item.total_bytes,
+                        speed_bps,
+                        eta_secs,
+                    };
+                }
+            }
+            Message::EngineEvent(EngineUiEvent::StateChanged { id, state }) => {
+                if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
+                    item.state = state;
+                }
+            }
+            Message::EngineEvent(EngineUiEvent::DownloadCompleted { id, sha256 }) => {
+                if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
+                    item.state = DownloadState::Completed;
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    item.completed_at = Some(now);
+                    if let Some(hash) = sha256 {
+                        item.sha256_hash = Some(hash);
+                    }
+
                     let downloads_clone = self.downloads.clone();
                     return Task::perform(
                         async move {
@@ -138,18 +153,91 @@ impl QdmApp {
                     );
                 }
             }
+            Message::EngineEvent(EngineUiEvent::DownloadFailed { id, error }) => {
+                if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
+                    item.state = DownloadState::Failed {
+                        downloaded_bytes: item.downloaded_bytes,
+                        total_bytes: item.total_bytes,
+                        error,
+                    };
+
+                    let downloads_clone = self.downloads.clone();
+                    return Task::perform(
+                        async move {
+                            storage::json_store::save_downloads(&downloads_clone)
+                        },
+                        Message::DownloadsPersisted,
+                    );
+                }
+            }
+            Message::EngineEvent(EngineUiEvent::PersistRequested { item }) => {
+                if let Some(target) = self.downloads.iter_mut().find(|d| d.id == item.id) {
+                    *target = item;
+                    let downloads_clone = self.downloads.clone();
+                    return Task::perform(
+                        async move {
+                            storage::json_store::save_downloads(&downloads_clone)
+                        },
+                        Message::DownloadsPersisted,
+                    );
+                }
+            }
+
+            Message::TogglePause(id) => {
+                if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
+                    match &item.state {
+                        DownloadState::Downloading { downloaded_bytes, total_bytes, .. } => {
+                            let bytes = *downloaded_bytes;
+                            let total = *total_bytes;
+                            item.state = DownloadState::Paused {
+                                downloaded_bytes: bytes,
+                                total_bytes: total,
+                            };
+                            let engine = self.engine.clone();
+                            let downloads_clone = self.downloads.clone();
+                            return Task::perform(
+                                async move {
+                                    engine.pause(id).await;
+                                    storage::json_store::save_downloads(&downloads_clone)
+                                },
+                                Message::DownloadsPersisted,
+                            );
+                        }
+                        DownloadState::Paused { .. }
+                        | DownloadState::Failed { .. }
+                        | DownloadState::Queued => {
+                            let item_clone = item.clone();
+                            let engine = self.engine.clone();
+                            return Task::perform(
+                                async move {
+                                    engine.start_or_resume(item_clone).await;
+                                    Ok(())
+                                },
+                                |_: Result<(), String>| Message::Tick,
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
             Message::CancelDownload(id) => {
                 self.downloads.retain(|d| d.id != id);
+                let engine = self.engine.clone();
                 let downloads_clone = self.downloads.clone();
                 return Task::perform(
                     async move {
+                        engine.cancel(id).await;
                         storage::json_store::save_downloads(&downloads_clone)
                     },
                     Message::DownloadsPersisted,
                 );
             }
             Message::OpenFolder(id) => {
-                println!("[QDM] Open folder for item {}", id);
+                if let Some(item) = self.downloads.iter().find(|d| d.id == id) {
+                    let _ = std::process::Command::new("explorer")
+                        .arg(&item.save_path)
+                        .spawn();
+                }
             }
             Message::OpenMirrorsModal(id) => {
                 if let Some(item) = self.downloads.iter().find(|d| d.id == id) {
@@ -226,6 +314,10 @@ impl QdmApp {
                     resumable,
                     max_connections,
                     speed_limit_bps: None,
+                    etag: None,
+                    last_modified: None,
+                    sha256_hash: None,
+                    chunks: Vec::new(),
                     created_at: 0,
                     updated_at: 0,
                     completed_at: None,
@@ -271,6 +363,10 @@ impl QdmApp {
                     resumable: false,
                     max_connections: 8,
                     speed_limit_bps: None,
+                    etag: None,
+                    last_modified: None,
+                    sha256_hash: None,
+                    chunks: Vec::new(),
                     created_at: 0,
                     updated_at: 0,
                     completed_at: None,
@@ -290,17 +386,27 @@ impl QdmApp {
             Message::DownloadSaved(Ok(inserted_item)) => {
                 let item_id = inserted_item.id;
                 let url = inserted_item.primary_url.url.clone();
-                let needs_bg_meta = matches!(inserted_item.state, DownloadState::FetchingMetadata) || inserted_item.total_bytes.is_none();
+                let needs_bg_meta = matches!(inserted_item.state, DownloadState::FetchingMetadata)
+                    || inserted_item.total_bytes.is_none();
 
-                self.downloads.insert(0, inserted_item);
+                self.downloads.insert(0, inserted_item.clone());
 
                 if needs_bg_meta {
-                    let downloader = self.downloader.clone();
+                    let engine = self.engine.clone();
                     return Task::perform(
                         async move {
-                            (item_id, downloader.get_file_meta_data(&url).await)
+                            (item_id, engine.probe_metadata(&url).await)
                         },
                         |(id, res)| Message::BackgroundMetadataFetched(id, res),
+                    );
+                } else {
+                    let engine = self.engine.clone();
+                    return Task::perform(
+                        async move {
+                            engine.start_or_resume(inserted_item).await;
+                            Ok(())
+                        },
+                        |_: Result<(), String>| Message::Tick,
                     );
                 }
             }
@@ -316,6 +422,9 @@ impl QdmApp {
                                 item.total_bytes = Some(len);
                             }
                             item.resumable = meta.supports_resume;
+                            item.etag = meta.etag;
+                            item.last_modified = meta.last_modified;
+
                             if item.filename == "download.file" {
                                 if let Some(ref cd) = meta.content_disposition {
                                     let better_name = add_dialogue::extract_filename(&item.primary_url.url, Some(cd));
@@ -347,10 +456,15 @@ impl QdmApp {
                         }
                     }
 
+                    let item_clone = item.clone();
+                    let engine = self.engine.clone();
                     let downloads_clone = self.downloads.clone();
+
                     return Task::perform(
                         async move {
-                            storage::json_store::save_downloads(&downloads_clone)
+                            let _ = storage::json_store::save_downloads(&downloads_clone);
+                            engine.start_or_resume(item_clone).await;
+                            Ok(())
                         },
                         Message::DownloadsPersisted,
                     );
@@ -402,11 +516,25 @@ impl QdmApp {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        if self.settings.is_animating() {
+        let engine = self.engine.clone();
+        let engine_sub = Subscription::run_with_id(
+            "qdm_download_engine_stream",
+            iced::stream::channel(256, move |mut output| async move {
+                use iced::futures::SinkExt;
+                let mut rx = engine.subscribe();
+                while let Ok(event) = rx.recv().await {
+                    let _ = output.send(Message::EngineEvent(event)).await;
+                }
+            }),
+        );
+
+        let anim_sub = if self.settings.is_animating() {
             iced::time::every(std::time::Duration::from_millis(16)).map(|_| Message::Tick)
         } else {
             Subscription::none()
-        }
+        };
+
+        Subscription::batch([engine_sub, anim_sub])
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -430,6 +558,16 @@ impl QdmApp {
 
         let scheduled_count = 0;
 
+        let total_speed_bps: u64 = self
+            .downloads
+            .iter()
+            .filter_map(|d| match &d.state {
+                DownloadState::Downloading { speed_bps, .. } => Some(*speed_bps),
+                _ => None,
+            })
+            .sum();
+        let total_speed_str = crate::models::download::format_speed(total_speed_bps);
+
         let sidebar = sidebar::sidebar_view(
             self.current_filter,
             downloading_count,
@@ -452,7 +590,7 @@ impl QdmApp {
             title,
             &self.search_query,
             downloading_count,
-            "0.0 MB/s",
+            &total_speed_str,
             Message::SearchChanged,
             Message::AddUrlPressed,
             Message::NotificationPressed,
