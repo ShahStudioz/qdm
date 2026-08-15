@@ -206,14 +206,24 @@ impl QdmApp {
                         DownloadState::Paused { .. }
                         | DownloadState::Failed { .. }
                         | DownloadState::Queued => {
+                            let bytes = item.downloaded_bytes;
+                            let total = item.total_bytes;
+                            item.state = DownloadState::Downloading {
+                                downloaded_bytes: bytes,
+                                total_bytes: total,
+                                speed_bps: 0,
+                                eta_secs: None,
+                            };
                             let item_clone = item.clone();
                             let engine = self.engine.clone();
+                            let downloads_clone = self.downloads.clone();
                             return Task::perform(
                                 async move {
+                                    let _ = storage::json_store::save_downloads(&downloads_clone);
                                     engine.start_or_resume(item_clone).await;
                                     Ok(())
                                 },
-                                |_: Result<(), String>| Message::Tick,
+                                Message::DownloadsPersisted,
                             );
                         }
                         _ => {}

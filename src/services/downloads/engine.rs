@@ -100,12 +100,12 @@ impl DownloadEngine {
     pub async fn start_or_resume(&self, item: DownloadItem) {
         let item_id = item.id;
 
-        // Cancel any existing controller for this item before starting
-        self.pause(item_id).await;
-
         let (pause_tx, pause_rx) = watch::channel(false);
         {
             let mut tasks = self.active_tasks.lock().await;
+            if let Some(prev_pause_tx) = tasks.remove(&item_id) {
+                let _ = prev_pause_tx.send(true);
+            }
             tasks.insert(item_id, pause_tx);
         }
 
@@ -204,13 +204,6 @@ impl DownloadEngine {
         if let Some(pause_tx) = tasks.remove(&id) {
             let _ = pause_tx.send(true);
         }
-        let _ = self.ui_event_tx.send(EngineUiEvent::StateChanged {
-            id,
-            state: DownloadState::Paused {
-                downloaded_bytes: 0,
-                total_bytes: None,
-            },
-        });
     }
 
     /// Cancels a download task and removes it from active registry.

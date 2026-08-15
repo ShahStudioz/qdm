@@ -139,33 +139,9 @@ impl ChunkWorker {
                             })
                             .await;
 
-                        let backoff = retry_after.unwrap_or_else(|| {
-                            // Exponential backoff with base 1.5s
-                            Duration::from_millis(1500 * (1 << retry_count.min(5)))
-                        });
-
-                        retry_count += 1;
-                        if retry_count > MAX_RETRIES {
-                            let _ = self
-                                .event_tx
-                                .send(WorkerEvent::WorkerFailed {
-                                    chunk_id: self.chunk.id,
-                                    error: format!("Rate limit exceeded after {} retries", MAX_RETRIES),
-                                })
-                                .await;
-                            return;
-                        }
-
-                        tokio::select! {
-                            _ = tokio::time::sleep(backoff) => {}
-                            _ = self.pause_rx.changed() => {
-                                if *self.pause_rx.borrow() {
-                                    let _ = self.writer.sync_data();
-                                    return;
-                                }
-                            }
-                        }
-                        continue;
+                        // Gracefully terminate worker and let the task controller adapt concurrency
+                        let _ = self.writer.sync_data();
+                        return;
                     }
 
                     // --- 2. Strict HTTP 206 Partial Content Check ---
