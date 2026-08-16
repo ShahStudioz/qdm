@@ -1,5 +1,5 @@
 #![allow(unused_imports)]
-
+pub mod diagnostics;
 pub mod download;
 pub mod engine;
 pub mod integrity;

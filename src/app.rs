@@ -83,6 +83,26 @@ impl QdmApp {
             }
             Message::DownloadsLoaded(Ok(loaded_items)) => {
                 self.downloads = loaded_items;
+
+                // Automatically resume any downloads that were in active Downloading state
+                let mut auto_resume_tasks = Vec::new();
+                for item in &self.downloads {
+                    if matches!(item.state, DownloadState::Downloading { .. }) {
+                        let item_clone = item.clone();
+                        let engine = self.engine.clone();
+                        auto_resume_tasks.push(Task::perform(
+                            async move {
+                                engine.start_or_resume(item_clone).await;
+                                Ok(())
+                            },
+                            |_: Result<(), String>| Message::Tick,
+                        ));
+                    }
+                }
+
+                if !auto_resume_tasks.is_empty() {
+                    return Task::batch(auto_resume_tasks);
+                }
             }
             Message::DownloadsLoaded(Err(err)) => {
                 println!("[QDM Storage Error] Failed to load downloads: {}", err);
@@ -129,11 +149,13 @@ impl QdmApp {
             }
             Message::EngineEvent(EngineUiEvent::StateChanged { id, state }) => {
                 if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
+                    println!("[QDM UI] Item {} state changed -> {:?}", id, state);
                     item.state = state;
                 }
             }
             Message::EngineEvent(EngineUiEvent::DownloadCompleted { id, sha256 }) => {
                 if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
+                    println!("[QDM UI] Item {} completed successfully! SHA-256: {:?}", id, sha256);
                     item.state = DownloadState::Completed;
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -155,6 +177,7 @@ impl QdmApp {
             }
             Message::EngineEvent(EngineUiEvent::DownloadFailed { id, error }) => {
                 if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
+                    println!("[QDM UI] Item {} failed: {}", id, error);
                     item.state = DownloadState::Failed {
                         downloaded_bytes: item.downloaded_bytes,
                         total_bytes: item.total_bytes,
@@ -172,7 +195,23 @@ impl QdmApp {
             }
             Message::EngineEvent(EngineUiEvent::PersistRequested { item }) => {
                 if let Some(target) = self.downloads.iter_mut().find(|d| d.id == item.id) {
-                    *target = item;
+                    // Update persistent metadata and chunk positions
+                    target.downloaded_bytes = item.downloaded_bytes;
+                    if item.total_bytes.is_some() {
+                        target.total_bytes = item.total_bytes;
+                    }
+                    target.chunks = item.chunks;
+                    target.etag = item.etag;
+                    target.last_modified = item.last_modified;
+                    target.sha256_hash = item.sha256_hash;
+
+                    match &item.state {
+                        DownloadState::Paused { .. } | DownloadState::Failed { .. } | DownloadState::Completed => {
+                            target.state = item.state;
+                        }
+                        _ => {}
+                    }
+
                     let downloads_clone = self.downloads.clone();
                     return Task::perform(
                         async move {

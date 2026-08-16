@@ -4,6 +4,19 @@ version = "0.1.0"
 edition = "2021"
 description = "Quick Download Manager - Modern Open-Source Downloader in Rust & Iced"
 
+# Expose internals as a library so the speed_debug binary can import them.
+[lib]
+name = "qdm"
+path = "src/lib.rs"
+
+[[bin]]
+name = "qdm"
+path = "src/main.rs"
+
+[[bin]]
+name = "speed_debug"
+path = "src/bin/speed_debug.rs"
+
 [dependencies]
 iced = { version = "0.13", features = ["tokio"] }
 tokio = { version = "1", features = ["full"] }

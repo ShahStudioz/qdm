@@ -2,25 +2,28 @@
 //!
 //! Orchestrates the adaptive multi-connection downloading process for an individual file.
 //!
-//! Advanced Architectural Features:
-//! 1. **Adaptive Dynamic Concurrency**: Automatically probes and auto-tunes the optimal number of
-//!    parallel connections (starts with 2 safe connections, auto-scales up if server allows).
-//! 2. **Instant Anti-429 Rate-Limit Throttling**: If a server enforces per-IP concurrency limits
-//!    (HTTP 429), immediately caps concurrency to the server's ceiling without spamming retries.
-//! 3. **Dynamic Work-Stealing**: Idle workers automatically split and take over uncompleted ranges
-//!    from busy workers, guaranteeing full bandwidth saturation and preventing speed drops to 0.
-//! 4. **Exponential Moving Average (EMA) Speed Smoothing**: Prevents abrupt speed jumps or drops
-//!    during chunk handoffs or TCP buffer adjustments.
-//! 5. **Strict 206 Fallback & Remote File Integrity Checks**: Handles single-stream fallbacks and
-//!    validates cryptographic SHA-256 and ZIP EOCD structure upon completion.
+//! True Multi-Stream Architecture (FDM / aria2 Model):
+//! ===================================================
+//! 1. **Long-Lived Continuous HTTP Streams**: Divides the file into long-lived streaming
+//!    ranges (e.g. 2 massive halves for 2 connections). Each connection makes **ONE**
+//!    HTTP request that streams continuously for the entire download duration.
+//! 2. **Zero TCP/HTTP Re-negotiation Overhead**: Eliminates repeated HTTP GET requests,
+//!    TCP slow-start congestion resets, and roundtrip request latency during active transfer.
+//! 3. **Dynamic Tail Work-Stealing**: When an active connection completes its entire half early,
+//!    it splits the remaining bytes of the slowest active stream once at the tail end.
+//! 4. **Adaptive Scale-Up & Anti-429 Ceiling**: Starts safely with 2 connections, probes
+//!    for capability, and locks concurrency ceiling instantly upon receiving HTTP 429.
+//! 5. **Sliding Window Speed Meter**: Computes smooth speed over a rolling 1.5-second window.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use std::collections::VecDeque;
 use reqwest::Client;
 use tokio::sync::{mpsc, watch};
 
-use crate::models::download::{ChunkState, DownloadItem, FileType};
+use crate::models::download::{ChunkState, DownloadItem, DownloadState, FileType};
+use crate::services::downloads::diagnostics::{DiagEvent, DiagSender};
 use crate::services::downloads::integrity;
 use crate::services::downloads::worker::{ChunkWorker, WorkerEvent};
 use crate::services::downloads::writer::PositionalWriter;
@@ -52,6 +55,80 @@ pub enum TaskEvent {
     },
 }
 
+/// Rolling window speed meter that aggregates bytes over a 1.5-second window.
+struct SlidingSpeedMeter {
+    pub(crate) samples: VecDeque<(Instant, u64)>,
+    window_duration: Duration,
+    pub(crate) last_nonzero_speed: u64,
+    pub(crate) last_nonzero_time: Instant,
+}
+
+impl SlidingSpeedMeter {
+    fn new(window_duration: Duration) -> Self {
+        Self {
+            samples: VecDeque::with_capacity(64),
+            window_duration,
+            last_nonzero_speed: 0,
+            last_nonzero_time: Instant::now(),
+        }
+    }
+
+    fn record_bytes(&mut self, count: u64) {
+        if count > 0 {
+            let now = Instant::now();
+            self.samples.push_back((now, count));
+            self.prune(now);
+        }
+    }
+
+    fn calculate_speed_bps(&mut self) -> u64 {
+        let now = Instant::now();
+        self.prune(now);
+
+        if self.samples.is_empty() {
+            let age_secs = now.duration_since(self.last_nonzero_time).as_secs_f64();
+            if age_secs < 5.0 {
+                // Smoothly decay from last known speed to 0 over 3.5s after the
+                // 1.5s rolling window empties. This prevents the hard cliff-drop to 0
+                // during HTTP re-request dead zones and transient network stalls.
+                let decay = if age_secs <= 1.5 {
+                    1.0_f64
+                } else {
+                    (1.0 - ((age_secs - 1.5) / 3.5)).clamp(0.0, 1.0)
+                };
+                return (self.last_nonzero_speed as f64 * decay) as u64;
+            }
+            return 0;
+        }
+
+        let total_bytes: u64 = self.samples.iter().map(|(_, bytes)| *bytes).sum();
+        if total_bytes == 0 {
+            return 0;
+        }
+
+        let oldest_time = self.samples.front().map(|(t, _)| *t).unwrap_or(now);
+        let elapsed_secs = (now - oldest_time).as_secs_f64().max(0.5);
+
+        let speed = (total_bytes as f64 / elapsed_secs) as u64;
+        if speed > 0 {
+            self.last_nonzero_speed = speed;
+            self.last_nonzero_time = now;
+        }
+
+        speed
+    }
+
+    fn prune(&mut self, now: Instant) {
+        while let Some(&(t, _)) = self.samples.front() {
+            if now.saturating_duration_since(t) > self.window_duration {
+                self.samples.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
+}
+
 /// Coordinates all chunk workers for a single active download item.
 pub struct DownloadTaskController {
     pub item: DownloadItem,
@@ -62,6 +139,8 @@ pub struct DownloadTaskController {
     max_allowed_concurrency: usize,
     current_target_concurrency: usize,
     next_scale_up_allowed: Instant,
+    /// Optional diagnostic side-channel. None in normal downloads, Some in speed_debug.
+    pub diag: Option<DiagSender>,
 }
 
 impl DownloadTaskController {
@@ -87,8 +166,16 @@ impl DownloadTaskController {
             active_workers: HashSet::new(),
             max_allowed_concurrency: max_concurrency,
             current_target_concurrency: initial_target,
-            next_scale_up_allowed: Instant::now() + Duration::from_secs(3),
+            next_scale_up_allowed: Instant::now() + Duration::from_secs(4),
+            diag: None,
         }
+    }
+
+    /// Attaches a diagnostic side-channel to this task controller.
+    #[allow(dead_code)]
+    pub fn with_diag(mut self, diag: DiagSender) -> Self {
+        self.diag = Some(diag);
+        self
     }
 
     /// Primary execution lifecycle for the download task.
@@ -109,98 +196,121 @@ impl DownloadTaskController {
             }
         };
 
-        // 2. Partition chunks or reuse existing chunk state
+        // 2. Partition initial long-lived chunks or reuse existing chunk state
         if self.item.chunks.is_empty() {
             self.item.chunks = self.partition_initial_chunks();
         }
 
         // 3. Worker channels & execution loop
-        let (worker_tx, mut worker_rx) = mpsc::channel::<WorkerEvent>(100);
+        // Channel sized for burst: a 4MB chunk at 16KB segments = ~256 events;
+        // 2048 slots prevents backpressure from blocking workers during high-throughput bursts.
+        let (worker_tx, mut worker_rx) = mpsc::channel::<WorkerEvent>(2048);
 
-        // Spawn initial safe workers
+        // Spawn initial long-lived workers
         self.spawn_available_work(&writer, &worker_tx);
 
-        let mut last_ui_emit = Instant::now();
+        let mut ui_ticker = tokio::time::interval(Duration::from_millis(150));
+        ui_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        let mut speed_meter = SlidingSpeedMeter::new(Duration::from_millis(2500));
         let mut last_persist_emit = Instant::now();
-        let mut speed_measuring_start = Instant::now();
-        let mut bytes_since_last_measure = 0u64;
-        let mut smoothed_speed_bps = 0.0f64;
+        // For TaskBytesReceived gap measurement
+        let mut last_bytes_recv_at: Option<Instant> = None;
+
+/// Asynchronously waits until the pause receiver becomes `true`.
+/// If the sender is dropped or if the value is `false`, it stays pending indefinitely
+/// so it never spuriously interrupts other select! arms.
+async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
+    if *pause_rx.borrow() {
+        return;
+    }
+    while let Ok(()) = pause_rx.changed().await {
+        if *pause_rx.borrow_and_update() {
+            return;
+        }
+    }
+    futures_util::future::pending::<()>().await;
+}
 
         loop {
             tokio::select! {
-                _ = self.pause_rx.changed() => {
-                    if *self.pause_rx.borrow() {
-                        let _ = writer.sync_data();
-                        self.item.downloaded_bytes = self.calculate_total_downloaded();
-                        let _ = self.task_event_tx.send(TaskEvent::StatePersistRequested {
-                            item: self.item.clone(),
-                        }).await;
-                        return;
-                    }
+                // biased: pause_rx is polled first on every iteration, guaranteeing
+                // that a pause/cancel signal is never delayed behind queued worker events.
+                biased;
+                _ = wait_for_pause(&mut self.pause_rx) => {
+                    let _ = writer.sync_data();
+                    let total_downloaded = self.calculate_total_downloaded();
+                    self.item.downloaded_bytes = total_downloaded;
+                    self.item.state = DownloadState::Paused {
+                        downloaded_bytes: total_downloaded,
+                        total_bytes: self.item.total_bytes,
+                    };
+                    let _ = self.task_event_tx.send(TaskEvent::StatePersistRequested {
+                        item: self.item.clone(),
+                    }).await;
+                    return;
                 }
-                // Periodic maintenance tick for adaptive concurrency scale-up
-                _ = tokio::time::sleep(Duration::from_millis(250)) => {
-                    // Try to adaptively scale up connections if everything is performing smoothly
+                // Periodic UI progress update (steady 150ms intervals)
+                _ = ui_ticker.tick() => {
+                    let total_downloaded = self.calculate_total_downloaded();
+                    self.item.downloaded_bytes = total_downloaded;
+                    let cur_speed_bps = speed_meter.calculate_speed_bps();
+
+                    let eta_secs = if cur_speed_bps > 0 {
+                        self.item.total_bytes.map(|total| {
+                            let remaining = total.saturating_sub(total_downloaded);
+                            remaining / cur_speed_bps
+                        })
+                    } else {
+                        None
+                    };
+
+                    // Diagnostic: emit speed calculation event with full meter state
+                    if let Some(ref d) = self.diag {
+                        let samples_count = speed_meter.samples.len();
+                        let oldest_age = speed_meter.samples.front()
+                            .map(|(t, _)| t.elapsed().as_micros() as u64)
+                            .unwrap_or(0);
+                        let age_secs = speed_meter.last_nonzero_time.elapsed().as_secs_f64();
+                        let used_decay = speed_meter.samples.is_empty() && age_secs <= 5.0;
+                        d.emit(DiagEvent::TaskSpeedCalc {
+                            ts: d.now(),
+                            samples_in_window: samples_count,
+                            oldest_sample_age_micros: oldest_age,
+                            result_bps: cur_speed_bps,
+                            used_decay,
+                        });
+                    }
+
+                    self.item.state = DownloadState::Downloading {
+                        downloaded_bytes: total_downloaded,
+                        total_bytes: self.item.total_bytes,
+                        speed_bps: cur_speed_bps,
+                        eta_secs,
+                    };
+
+                    let _ = self.task_event_tx.send(TaskEvent::ProgressUpdated {
+                        id: self.item.id,
+                        downloaded_bytes: total_downloaded,
+                        total_bytes: self.item.total_bytes,
+                        speed_bps: cur_speed_bps,
+                        eta_secs,
+                        chunks: self.item.chunks.clone(),
+                    }).await;
+
+                    // Adaptive scaling check (attempt +1 connection after 4s if healthy)
                     if self.item.resumable
                         && self.active_workers.len() == self.current_target_concurrency
                         && self.current_target_concurrency < self.max_allowed_concurrency
                         && Instant::now() >= self.next_scale_up_allowed
                     {
                         self.current_target_concurrency += 1;
-                        self.next_scale_up_allowed = Instant::now() + Duration::from_secs(4);
+                        self.next_scale_up_allowed = Instant::now() + Duration::from_secs(5);
                         self.spawn_available_work(&writer, &worker_tx);
                     }
 
-                    // Update EMA speed calculation
-                    let elapsed = speed_measuring_start.elapsed();
-                    if elapsed >= Duration::from_millis(250) {
-                        let secs = elapsed.as_secs_f64();
-                        if secs > 0.0 {
-                            let sample_bps = (bytes_since_last_measure as f64) / secs;
-                            if bytes_since_last_measure > 0 {
-                                // Smooth EMA filter
-                                smoothed_speed_bps = 0.35 * sample_bps + 0.65 * smoothed_speed_bps;
-                            } else {
-                                // Graceful decay on network idle
-                                smoothed_speed_bps *= 0.75;
-                                if smoothed_speed_bps < 512.0 {
-                                    smoothed_speed_bps = 0.0;
-                                }
-                            }
-                        }
-                        bytes_since_last_measure = 0;
-                        speed_measuring_start = Instant::now();
-                    }
-
-                    // Emit progress to UI every 200ms
-                    if last_ui_emit.elapsed() >= Duration::from_millis(200) {
-                        let total_downloaded = self.calculate_total_downloaded();
-                        self.item.downloaded_bytes = total_downloaded;
-                        let cur_speed = smoothed_speed_bps as u64;
-
-                        let eta_secs = if cur_speed > 0 {
-                            self.item.total_bytes.map(|total| {
-                                let remaining = total.saturating_sub(total_downloaded);
-                                remaining / cur_speed
-                            })
-                        } else {
-                            None
-                        };
-
-                        let _ = self.task_event_tx.send(TaskEvent::ProgressUpdated {
-                            id: self.item.id,
-                            downloaded_bytes: total_downloaded,
-                            total_bytes: self.item.total_bytes,
-                            speed_bps: cur_speed,
-                            eta_secs,
-                            chunks: self.item.chunks.clone(),
-                        }).await;
-                        last_ui_emit = Instant::now();
-                    }
-
-                    // Periodic state persistence to JSON
+                    // Periodic state persistence to JSON (every 3s)
                     if last_persist_emit.elapsed() >= Duration::from_secs(3) {
-                        self.item.downloaded_bytes = self.calculate_total_downloaded();
                         let _ = self.task_event_tx.send(TaskEvent::StatePersistRequested {
                             item: self.item.clone(),
                         }).await;
@@ -213,7 +323,24 @@ impl DownloadTaskController {
                             if let Some(chunk) = self.item.chunks.iter_mut().find(|c| c.id == chunk_id) {
                                 chunk.current_offset = current_offset;
                             }
-                            bytes_since_last_measure += count;
+                            speed_meter.record_bytes(count);
+
+                            // Diagnostic: emit receive event with gap measurement
+                            if let Some(ref d) = self.diag {
+                                let now = Instant::now();
+                                let gap_micros = last_bytes_recv_at
+                                    .map(|prev| now.duration_since(prev).as_micros() as u64)
+                                    .unwrap_or(0);
+                                d.emit(DiagEvent::TaskBytesReceived {
+                                    ts: d.now(),
+                                    chunk_id,
+                                    count,
+                                    gap_since_last_micros: gap_micros,
+                                });
+                                last_bytes_recv_at = Some(now);
+                            } else {
+                                last_bytes_recv_at = Some(Instant::now());
+                            }
                         }
                         Some(WorkerEvent::ChunkCompleted { chunk_id }) => {
                             if let Some(chunk) = self.item.chunks.iter_mut().find(|c| c.id == chunk_id) {
@@ -247,7 +374,7 @@ impl DownloadTaskController {
                                 return;
                             }
 
-                            // Keep workers busy: dispatch uncompleted chunk or work-steal
+                            // Keep workers busy: dispatch uncompleted chunk or tail work-steal
                             self.spawn_available_work(&writer, &worker_tx);
                         }
                         Some(WorkerEvent::RateLimited { chunk_id, retry_after: _ }) => {
@@ -256,8 +383,7 @@ impl DownloadTaskController {
                             // Smart Concurrency Cap: Lock max concurrency to the active healthy count
                             self.max_allowed_concurrency = self.active_workers.len().max(1);
                             self.current_target_concurrency = self.max_allowed_concurrency;
-                            // Block any further scale up for at least 60 seconds
-                            self.next_scale_up_allowed = Instant::now() + Duration::from_secs(60);
+                            self.next_scale_up_allowed = Instant::now() + Duration::from_secs(120);
 
                             println!(
                                 "[QDM Task {}] HTTP 429 rate limit encountered on worker {}. Smartly capped concurrency to {} active connections.",
@@ -274,15 +400,13 @@ impl DownloadTaskController {
                                         _ = tokio::time::sleep(Duration::from_secs(2)) => {
                                             let _ = worker_tx_clone.send(WorkerEvent::BytesDownloaded { chunk_id: 0, count: 0, current_offset: 0 }).await;
                                         }
-                                        _ = pause_rx.changed() => {}
+                                        _ = wait_for_pause(&mut pause_rx) => {}
                                     }
                                 });
                                 self.spawn_available_work(&writer, &worker_tx);
                             }
                         }
                         Some(WorkerEvent::FallbackToSingleStream { chunk_id: _ }) => {
-                            // Server returned 200 OK: does not support Range requests!
-                            // Fallback gracefully to single-stream download from byte 0.
                             println!("[QDM Task {}] Server rejected HTTP 206 Range. Falling back to single-stream.", self.item.id);
                             self.item.resumable = false;
                             self.max_allowed_concurrency = 1;
@@ -312,7 +436,7 @@ impl DownloadTaskController {
                             self.active_workers.remove(&chunk_id);
                             println!("[QDM Task {}] Worker {} stopped: {}", self.item.id, chunk_id, error);
 
-                            // If all workers died, report failure
+                            // If all workers died and no progress at all, report failure
                             if self.active_workers.is_empty() && self.item.chunks.iter().all(|c| !c.is_completed) {
                                 let _ = self.task_event_tx.send(TaskEvent::Failed {
                                     id: self.item.id,
@@ -321,6 +445,11 @@ impl DownloadTaskController {
                                 }).await;
                                 return;
                             }
+
+                            // Re-dispatch work so we never silently drop to fewer connections
+                            // than intended. This restarts the failed chunk from its last
+                            // persisted current_offset.
+                            self.spawn_available_work(&writer, &worker_tx);
                         }
                         None => {
                             break;
@@ -331,7 +460,7 @@ impl DownloadTaskController {
         }
     }
 
-    /// Partitions the initial file size across chunks.
+    /// Partitions the initial file size into massive contiguous long-lived ranges.
     fn partition_initial_chunks(&self) -> Vec<ChunkState> {
         let total = match self.item.total_bytes {
             Some(t) if t > 0 => t,
@@ -343,7 +472,8 @@ impl DownloadTaskController {
             return vec![ChunkState::new(0, &self.item.primary_url.url, 0, total - 1)];
         }
 
-        let num_connections = (self.item.max_connections as usize).clamp(1, 16);
+        // Long-Lived Streams: create initial_target massive chunks (e.g. 2 chunks for 2 initial connections)
+        let num_connections = self.current_target_concurrency.clamp(1, 16);
         let mut chunks = Vec::with_capacity(num_connections);
 
         let mut available_urls = vec![self.item.primary_url.url.clone()];
@@ -369,7 +499,7 @@ impl DownloadTaskController {
         chunks
     }
 
-    /// Spawns workers for unassigned chunks or performs work-stealing from busy workers.
+    /// Spawns workers for unassigned chunks or performs dynamic tail work-stealing from busy workers.
     fn spawn_available_work(&mut self, writer: &PositionalWriter, worker_tx: &mpsc::Sender<WorkerEvent>) {
         while self.active_workers.len() < self.current_target_concurrency {
             // 1. Check for an uncompleted chunk that is NOT currently active
@@ -381,7 +511,17 @@ impl DownloadTaskController {
                 let chunk = self.item.chunks[idx].clone();
                 self.active_workers.insert(chunk.id);
 
-                let worker = ChunkWorker::new(
+                // Emit: worker spawned
+                if let Some(ref d) = self.diag {
+                    d.emit(DiagEvent::TaskWorkerSpawned {
+                        ts: d.now(),
+                        chunk_id: chunk.id,
+                        start_offset: chunk.current_offset,
+                        end_offset: chunk.end_byte,
+                    });
+                }
+
+                let mut worker = ChunkWorker::new(
                     chunk,
                     self.client.clone(),
                     writer.clone(),
@@ -390,12 +530,15 @@ impl DownloadTaskController {
                     worker_tx.clone(),
                     self.pause_rx.clone(),
                 );
+                if let Some(ref d) = self.diag {
+                    worker = worker.with_diag(d.clone());
+                }
 
                 tokio::spawn(async move {
                     worker.run(Duration::ZERO).await;
                 });
             } else {
-                // 2. Work-Stealing: Find the active chunk index with the largest remaining byte range (> 2MB)
+                // 2. Dynamic Work-Stealing: Find the active chunk with the largest remaining byte range (> 4MB)
                 let largest_idx = self
                     .item
                     .chunks
@@ -408,7 +551,7 @@ impl DownloadTaskController {
                 if let Some(idx) = largest_idx {
                     let busy_chunk = &mut self.item.chunks[idx];
                     let remaining = busy_chunk.end_byte - busy_chunk.current_offset;
-                    const MIN_STEAL_SIZE: u64 = 2 * 1024 * 1024; // Minimum 2MB to warrant a split
+                    const MIN_STEAL_SIZE: u64 = 4 * 1024 * 1024; // Minimum 4MB to warrant a split
 
                     if remaining >= MIN_STEAL_SIZE {
                         let midpoint = busy_chunk.current_offset + (remaining / 2);
@@ -424,7 +567,17 @@ impl DownloadTaskController {
                         self.item.chunks.push(new_chunk.clone());
                         self.active_workers.insert(new_id);
 
-                        let worker = ChunkWorker::new(
+                        // Emit: stolen worker spawned
+                        if let Some(ref d) = self.diag {
+                            d.emit(DiagEvent::TaskWorkerSpawned {
+                                ts: d.now(),
+                                chunk_id: new_id,
+                                start_offset: stolen_start,
+                                end_offset: stolen_end,
+                            });
+                        }
+
+                        let mut worker = ChunkWorker::new(
                             new_chunk,
                             self.client.clone(),
                             writer.clone(),
@@ -433,6 +586,9 @@ impl DownloadTaskController {
                             worker_tx.clone(),
                             self.pause_rx.clone(),
                         );
+                        if let Some(ref d) = self.diag {
+                            worker = worker.with_diag(d.clone());
+                        }
 
                         tokio::spawn(async move {
                             worker.run(Duration::ZERO).await;
