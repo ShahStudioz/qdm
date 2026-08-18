@@ -30,3 +30,41 @@ pub fn get_default_download_dir() -> String {
             path.to_string_lossy().to_string()
         })
 }
+
+/// Checks if either `filename` or `filename.qdmdownload` exists in the target directory.
+pub fn file_exists_or_downloading(dir: &str, filename: &str) -> bool {
+    let dir_path = std::path::Path::new(dir);
+    let target = dir_path.join(filename);
+    let temp_target = dir_path.join(format!("{}.qdmdownload", filename));
+    target.exists() || temp_target.exists()
+}
+
+/// Given a directory path and a candidate filename, returns the filename if neither it
+/// nor its `.qdmdownload` variant exist, or generates a non-conflicting filename like `filename (1).ext`.
+pub fn generate_unique_filename(dir: &str, filename: &str) -> String {
+    if !file_exists_or_downloading(dir, filename) {
+        return filename.to_string();
+    }
+
+    let file_path = std::path::Path::new(filename);
+    let stem = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("download");
+    let ext = file_path
+        .extension()
+        .and_then(|s| s.to_str());
+
+    let mut counter = 1u32;
+    loop {
+        let candidate_name = match ext {
+            Some(extension) => format!("{} ({}).{}", stem, counter, extension),
+            None => format!("{} ({})", stem, counter),
+        };
+
+        if !file_exists_or_downloading(dir, &candidate_name) {
+            return candidate_name;
+        }
+        counter += 1;
+    }
+}

@@ -12,7 +12,7 @@
 //! - **Atomic Positional Disk Writes**: Streams bytes directly to exact disk offsets via `PositionalWriter`.
 
 use std::time::Duration;
-use reqwest::header::{HeaderMap, RANGE, RETRY_AFTER};
+use reqwest::header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, HeaderMap, RANGE, RETRY_AFTER};
 use reqwest::{Client, StatusCode};
 use tokio::sync::{mpsc, watch};
 
@@ -24,6 +24,7 @@ use crate::services::downloads::writer::PositionalWriter;
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum WorkerEvent {
+    MetadataDiscovered { total_bytes: u64, resumable: bool },
     BytesDownloaded { chunk_id: usize, count: u64, current_offset: u64 },
     ChunkCompleted { chunk_id: usize },
     RateLimited { chunk_id: usize, retry_after: Option<Duration> },
@@ -223,6 +224,38 @@ impl ChunkWorker {
                     }
 
                     retry_count = 0;
+
+                    // Inspect response headers to report discovered metadata (size, resumability)
+                    let headers = resp.headers();
+                    let supports_resume = status == StatusCode::PARTIAL_CONTENT
+                        || headers
+                            .get(ACCEPT_RANGES)
+                            .and_then(|v| v.to_str().ok())
+                            .map(|v| v.eq_ignore_ascii_case("bytes"))
+                            .unwrap_or(false);
+
+                    let mut discovered_length = None;
+                    if status == StatusCode::PARTIAL_CONTENT {
+                        if let Some(content_range) = headers.get(CONTENT_RANGE).and_then(|v| v.to_str().ok()) {
+                            if let Some(total_str) = content_range.split('/').last() {
+                                if let Ok(total) = total_str.trim().parse::<u64>() {
+                                    discovered_length = Some(total);
+                                }
+                            }
+                        }
+                    } else if let Some(len_val) = headers.get(CONTENT_LENGTH).and_then(|v| v.to_str().ok()) {
+                        if let Ok(len) = len_val.trim().parse::<u64>() {
+                            discovered_length = Some(len);
+                        }
+                    }
+
+                    if let Some(total) = discovered_length {
+                        let _ = self.event_tx.send(WorkerEvent::MetadataDiscovered {
+                            total_bytes: total,
+                            resumable: supports_resume,
+                        }).await;
+                    }
+
                     let mut stream = resp;
                     let mut write_buffer: Vec<u8> = Vec::with_capacity(256 * 1024);
                     let mut buffer_start_offset = self.chunk.current_offset;

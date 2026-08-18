@@ -45,6 +45,18 @@ fn default_notification_sound() -> String {
     "Default".to_string()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FileConflictAction {
+    AutoRename,
+    Overwrite,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DeleteAction {
+    RemoveFromList,
+    DeleteFromDisk,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SettingsModel {
     #[serde(default)]
@@ -62,6 +74,12 @@ pub struct SettingsModel {
 
     #[serde(default = "crate::core::utils::paths::get_default_download_dir")]
     pub download_folder: String,
+
+    #[serde(default)]
+    pub file_conflict_action: Option<FileConflictAction>,
+
+    #[serde(default)]
+    pub delete_action: Option<DeleteAction>,
 
     #[serde(default = "default_simultaneous_downloads")]
     pub simultaneous_downloads: usize,
@@ -112,6 +130,8 @@ impl Default for SettingsModel {
             minimize_to_tray_anim: 1.0,
 
             download_folder: crate::core::utils::paths::get_default_download_dir(),
+            file_conflict_action: None,
+            delete_action: None,
             simultaneous_downloads: 3,
             max_connections: 8,
             max_threads: 4,
@@ -185,6 +205,9 @@ pub enum SettingsMessage {
     ToggleTray(bool),
     FolderChanged(String),
     BrowseFolderPressed,
+    BrowseFolderResult(Option<String>),
+    FileConflictActionChanged(String),
+    DeleteActionChanged(String),
     StepperDecrement,
     StepperIncrement,
     ToggleNotifications(bool),
@@ -203,6 +226,25 @@ pub fn update(model: &mut SettingsModel, message: SettingsMessage) {
         SettingsMessage::FolderChanged(folder) => model.download_folder = folder,
         SettingsMessage::BrowseFolderPressed => {
             println!("[QDM] Browse download folder pressed");
+        }
+        SettingsMessage::BrowseFolderResult(res) => {
+            if let Some(folder) = res {
+                model.download_folder = folder;
+            }
+        }
+        SettingsMessage::FileConflictActionChanged(val) => {
+            model.file_conflict_action = match val.as_str() {
+                "Auto-rename file" => Some(FileConflictAction::AutoRename),
+                "Overwrite existing file" => Some(FileConflictAction::Overwrite),
+                _ => None,
+            };
+        }
+        SettingsMessage::DeleteActionChanged(val) => {
+            model.delete_action = match val.as_str() {
+                "Remove from list only" => Some(DeleteAction::RemoveFromList),
+                "Delete file from disk" => Some(DeleteAction::DeleteFromDisk),
+                _ => None,
+            };
         }
         SettingsMessage::StepperDecrement => {
             if model.simultaneous_downloads > 1 {
@@ -295,6 +337,54 @@ pub fn settings_view(model: &SettingsModel) -> Element<'_, SettingsMessage> {
         "Default download folder",
         "Where to save files",
         folder_control.into(),
+    );
+
+    let conflict_options = vec![
+        "Ask every time".to_string(),
+        "Auto-rename file".to_string(),
+        "Overwrite existing file".to_string(),
+    ];
+    let selected_conflict = match model.file_conflict_action {
+        Some(FileConflictAction::AutoRename) => "Auto-rename file".to_string(),
+        Some(FileConflictAction::Overwrite) => "Overwrite existing file".to_string(),
+        None => "Ask every time".to_string(),
+    };
+    let conflict_dropdown = pick_list(
+        conflict_options,
+        Some(selected_conflict),
+        SettingsMessage::FileConflictActionChanged,
+    )
+    .padding([8, 12])
+    .width(240);
+
+    let item_conflict = setting_row(
+        "When file already exists",
+        "Action to take if a file with the same name exists",
+        conflict_dropdown.into(),
+    );
+
+    let delete_options = vec![
+        "Ask every time".to_string(),
+        "Remove from list only".to_string(),
+        "Delete file from disk".to_string(),
+    ];
+    let selected_delete = match model.delete_action {
+        Some(DeleteAction::RemoveFromList) => "Remove from list only".to_string(),
+        Some(DeleteAction::DeleteFromDisk) => "Delete file from disk".to_string(),
+        None => "Ask every time".to_string(),
+    };
+    let delete_dropdown = pick_list(
+        delete_options,
+        Some(selected_delete),
+        SettingsMessage::DeleteActionChanged,
+    )
+    .padding([8, 12])
+    .width(240);
+
+    let item_delete = setting_row(
+        "When deleting a download",
+        "Action to take when delete button is clicked",
+        delete_dropdown.into(),
     );
 
     let minus_btn = button(text("-").size(14).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY))
@@ -390,6 +480,8 @@ pub fn settings_view(model: &SettingsModel) -> Element<'_, SettingsMessage> {
         item_startup,
         item_tray,
         item_folder,
+        item_conflict,
+        item_delete,
         item_stepper,
         item_notifications,
         item_sound,

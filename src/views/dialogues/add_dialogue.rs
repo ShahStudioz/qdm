@@ -286,6 +286,44 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
             });
             let filename_group = column![filename_label, filename_box].spacing(6);
 
+            let file_exists = crate::core::utils::paths::file_exists_or_downloading(&state.save_to, &state.filename);
+            let collision_warning: Element<AddDialogueModalMessage> = if file_exists && !state.filename.trim().is_empty() {
+                container(
+                    row![
+                        icon(icons::ICON_WARN).size(14).color(colors::WARNING),
+                        text("File with this name already exists in destination.")
+                            .size(12)
+                            .color(colors::WARNING)
+                            .width(Length::Fill),
+                        button(
+                            text("Auto-Rename")
+                                .size(11)
+                                .font(styles::BOLD_FONT)
+                                .color(colors::TEXT_PRIMARY)
+                        )
+                        .padding([4, 10])
+                        .style(styles::ghost_button_style)
+                        .on_press(AddDialogueModalMessage::AutoRenameFilename),
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                )
+                .padding([8, 12])
+                .width(Length::Fill)
+                .style(|_| container::Style {
+                    background: Some(iced::Background::Color(iced::Color::from_rgba(0.95, 0.70, 0.20, 0.12))),
+                    border: iced::Border {
+                        color: colors::WARNING,
+                        width: 1.0,
+                        radius: 6.0.into(),
+                    },
+                    ..Default::default()
+                })
+                .into()
+            } else {
+                Space::with_height(0).into()
+            };
+
             let save_to_label = form_label("SAVE TO");
             let save_to_input = text_input(&paths::get_default_download_dir(), &state.save_to)
                 .on_input(AddDialogueModalMessage::AddSaveToChanged)
@@ -375,6 +413,7 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                 metadata_summary,
                 url_group,
                 filename_group,
+                collision_warning,
                 save_to_group,
                 advanced_group
             ]
@@ -524,8 +563,10 @@ pub enum AddDialogueModalMessage {
     FetchFileInfoPressed,
     FileMetaDataFetched(Result<DownloadFileMetaData, String>),
     AddFilenameChanged(String),
+    AutoRenameFilename,
     AddSaveToChanged(String),
     AddBrowseFolderPressed,
+    FolderPicked(Option<String>),
     ToggleAdvancedOptions,
     AddMaxConnectionsChanged(String),
     AddSpeedLimitChanged(String),
@@ -597,12 +638,31 @@ pub fn update(
         AddDialogueModalMessage::AddFilenameChanged(filename) => {
             state.filename = filename;
         }
+        AddDialogueModalMessage::AutoRenameFilename => {
+            state.filename = paths::generate_unique_filename(&state.save_to, &state.filename);
+        }
         AddDialogueModalMessage::AddSaveToChanged(save_to) => {
             state.save_to = save_to;
         }
         AddDialogueModalMessage::AddBrowseFolderPressed => {
-            println!("[QDM] Add Dialog browse folder clicked");
+            let current_save_to = state.save_to.clone();
+            let task = async move {
+                let mut dialog = rfd::AsyncFileDialog::new().set_title("Select Download Folder");
+                if std::path::Path::new(&current_save_to).exists() {
+                    dialog = dialog.set_directory(&current_save_to);
+                }
+                if let Some(folder) = dialog.pick_folder().await {
+                    Some(folder.path().to_string_lossy().to_string())
+                } else {
+                    None
+                }
+            };
+            return Task::perform(task, AddDialogueModalMessage::FolderPicked);
         }
+        AddDialogueModalMessage::FolderPicked(Some(path)) => {
+            state.save_to = path;
+        }
+        AddDialogueModalMessage::FolderPicked(None) => {}
         AddDialogueModalMessage::ToggleAdvancedOptions => {
             state.is_advanced_expanded = !state.is_advanced_expanded;
         }

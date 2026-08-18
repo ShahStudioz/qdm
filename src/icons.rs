@@ -24,6 +24,7 @@ pub const ICON_DOWNLOADING: char = '\u{f0ed}';   // fa-cloud-arrow-down
 pub const ICON_COMPLETED: char = '\u{f058}';     // fa-circle-check
 pub const ICON_FAILED: char = '\u{f06a}';        // fa-circle-exclamation
 pub const ICON_SCHEDULED: char = '\u{f017}';     // fa-clock
+pub const ICON_CLOCK: char = '\u{f017}';         // fa-clock
 pub const ICON_SETTINGS: char = '\u{f013}';      // fa-gear
 pub const ICON_BELL: char = '\u{f0f3}';          // fa-bell
 pub const ICON_SEARCH: char = '\u{f002}';        // fa-magnifying-glass

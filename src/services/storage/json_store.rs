@@ -164,5 +164,52 @@ mod tests {
         assert_eq!(settings.timeout_seconds, parsed.timeout_seconds);
         assert_eq!(settings.user_agent, parsed.user_agent);
         assert_eq!(settings.show_notifications, parsed.show_notifications);
+        assert_eq!(settings.file_conflict_action, parsed.file_conflict_action);
+        assert_eq!(settings.delete_action, parsed.delete_action);
+    }
+
+    #[test]
+    fn test_settings_model_with_custom_actions_serde() {
+        use crate::views::settings::settings::{FileConflictAction, DeleteAction};
+        let mut settings = SettingsModel::default();
+        settings.file_conflict_action = Some(FileConflictAction::AutoRename);
+        settings.delete_action = Some(DeleteAction::DeleteFromDisk);
+
+        let json = serde_json::to_string(&settings).expect("Serialize settings");
+        let parsed: SettingsModel = serde_json::from_str(&json).expect("Deserialize settings");
+
+        assert_eq!(parsed.file_conflict_action, Some(FileConflictAction::AutoRename));
+        assert_eq!(parsed.delete_action, Some(DeleteAction::DeleteFromDisk));
+    }
+
+    #[test]
+    fn test_generate_unique_filename() {
+        let temp_dir = std::env::temp_dir().join("qdm_unique_name_test");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let temp_dir_str = temp_dir.to_string_lossy().to_string();
+
+        let base_file = "test_archive.zip";
+        let path1 = temp_dir.join(base_file);
+        let _ = std::fs::write(&path1, b"first");
+
+        let unique1 = crate::core::utils::paths::generate_unique_filename(&temp_dir_str, base_file);
+        assert_eq!(unique1, "test_archive (1).zip");
+
+        let path2 = temp_dir.join(&unique1);
+        let _ = std::fs::write(&path2, b"second");
+
+        let unique2 = crate::core::utils::paths::generate_unique_filename(&temp_dir_str, base_file);
+        assert_eq!(unique2, "test_archive (2).zip");
+
+        // Test conflict resolution when a .qdmdownload in-progress file exists
+        let path3 = temp_dir.join("test_archive (2).zip.qdmdownload");
+        let _ = std::fs::write(&path3, b"third in progress");
+
+        let unique3 = crate::core::utils::paths::generate_unique_filename(&temp_dir_str, base_file);
+        assert_eq!(unique3, "test_archive (3).zip");
+
+        assert!(crate::core::utils::paths::file_exists_or_downloading(&temp_dir_str, "test_archive (2).zip"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

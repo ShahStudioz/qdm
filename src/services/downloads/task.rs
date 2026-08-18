@@ -181,15 +181,16 @@ impl DownloadTaskController {
     /// Primary execution lifecycle for the download task.
     pub async fn run(mut self) {
         let save_path = PathBuf::from(&self.item.save_path);
-        let target_file_path = save_path.join(&self.item.filename);
+        let final_file_path = save_path.join(&self.item.filename);
+        let temp_file_path = save_path.join(format!("{}.qdmdownload", self.item.filename));
 
-        // 1. Initialize Positional File Writer with disk pre-allocation
-        let writer = match PositionalWriter::create_preallocated(&target_file_path, self.item.total_bytes) {
+        // 1. Initialize Positional File Writer with disk pre-allocation on temporary .qdmdownload file
+        let writer = match PositionalWriter::create_preallocated(&temp_file_path, self.item.total_bytes) {
             Ok(w) => w,
             Err(e) => {
                 let _ = self.task_event_tx.send(TaskEvent::Failed {
                     id: self.item.id,
-                    error: format!("Failed to create output file {:?}: {}", target_file_path, e),
+                    error: format!("Failed to create output file {:?}: {}", temp_file_path, e),
                     downloaded_bytes: self.item.downloaded_bytes,
                 }).await;
                 return;
@@ -319,6 +320,34 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                 }
                 event = worker_rx.recv() => {
                     match event {
+                        Some(WorkerEvent::MetadataDiscovered { total_bytes, resumable }) => {
+                            let mut changed = false;
+                            if self.item.total_bytes.is_none() || self.item.total_bytes == Some(0) {
+                                self.item.total_bytes = Some(total_bytes);
+                                changed = true;
+                                println!("[QDM Task {}] In-flight metadata discovered: total size = {} bytes", self.item.id, total_bytes);
+                            }
+                            if !self.item.resumable && resumable {
+                                self.item.resumable = true;
+                                changed = true;
+                            }
+                            if changed {
+                                if self.item.chunks.len() == 1 && self.item.chunks[0].end_byte == u64::MAX {
+                                    self.item.chunks[0].end_byte = total_bytes.saturating_sub(1);
+                                }
+                                let _ = self.task_event_tx.send(TaskEvent::ProgressUpdated {
+                                    id: self.item.id,
+                                    downloaded_bytes: self.item.downloaded_bytes,
+                                    total_bytes: self.item.total_bytes,
+                                    speed_bps: 0,
+                                    eta_secs: None,
+                                    chunks: self.item.chunks.clone(),
+                                }).await;
+                                let _ = self.task_event_tx.send(TaskEvent::StatePersistRequested {
+                                    item: self.item.clone(),
+                                }).await;
+                            }
+                        }
                         Some(WorkerEvent::BytesDownloaded { chunk_id, count, current_offset }) => {
                             if let Some(chunk) = self.item.chunks.iter_mut().find(|c| c.id == chunk_id) {
                                 chunk.current_offset = current_offset;
@@ -356,14 +385,29 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                             // Check if all chunks have finished or total size reached
                             if all_chunks_done || size_satisfied {
                                 let _ = writer.sync_data();
+                                drop(writer);
+
                                 for c in &mut self.item.chunks {
                                     c.is_completed = true;
                                     c.current_offset = c.end_byte.saturating_add(1);
                                 }
                                 self.item.downloaded_bytes = total_downloaded;
 
-                                // Post-download integrity verification
-                                let (is_valid, computed_sha256) = self.verify_download_integrity(&target_file_path).await;
+                                // Rename temporary .qdmdownload file to final filename upon completion
+                                if temp_file_path.exists() {
+                                    if final_file_path.exists() {
+                                        let _ = std::fs::remove_file(&final_file_path);
+                                    }
+                                    if let Err(err) = std::fs::rename(&temp_file_path, &final_file_path) {
+                                        println!(
+                                            "[QDM Task {}] Warning: Failed to rename {:?} to {:?}: {}",
+                                            self.item.id, temp_file_path, final_file_path, err
+                                        );
+                                    }
+                                }
+
+                                // Post-download integrity verification on final file
+                                let (is_valid, computed_sha256) = self.verify_download_integrity(&final_file_path).await;
 
                                 if is_valid {
                                     println!("[QDM Task {}] Download fully completed! (Total {} bytes)", self.item.id, total_downloaded);

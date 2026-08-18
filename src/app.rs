@@ -3,7 +3,7 @@ use crate::services::downloads::{DownloadEngine, EngineUiEvent, FileMetadata};
 use crate::services::storage;
 use crate::theme::colors;
 use crate::views::components::{sidebar, toolbar};
-use crate::views::dialogues::{add_dialogue, mirror_dialogue};
+use crate::views::dialogues::{add_dialogue, conflict_dialogue, delete_dialogue, mirror_dialogue};
 use crate::views::downloads::download_list::download_list_view;
 use crate::views::settings::settings;
 use iced::widget::{column, container, row, stack};
@@ -12,6 +12,8 @@ use iced::{Element, Length, Subscription, Task, Theme};
 #[derive(Debug, Clone)]
 pub enum Message {
     Tick,
+    SecondTick,
+    SyncWithDisk,
     DownloadsLoaded(Result<Vec<DownloadItem>, String>),
     DownloadSaved(Result<DownloadItem, String>),
     DownloadsPersisted(Result<(), String>),
@@ -32,6 +34,8 @@ pub enum Message {
     SettingsMessage(settings::SettingsMessage),
     AddDialogueModalMessages(add_dialogue::AddDialogueModalMessage),
     MirrorDialogueMessages(mirror_dialogue::MirrorDialogueMessage),
+    ConflictDialogueMessages(conflict_dialogue::ConflictDialogMessage),
+    DeleteDialogueMessages(delete_dialogue::DeleteDialogMessage),
 }
 
 pub struct QdmApp {
@@ -41,6 +45,8 @@ pub struct QdmApp {
     settings: settings::SettingsModel,
     add_dialog: add_dialogue::AddDialogModel,
     mirror_dialog: mirror_dialogue::MirrorDialogModel,
+    conflict_dialog: conflict_dialogue::ConflictDialogModel,
+    delete_dialog: delete_dialogue::DeleteDialogModel,
     engine: DownloadEngine,
 }
 
@@ -53,6 +59,8 @@ impl Default for QdmApp {
             settings: settings::SettingsModel::default(),
             add_dialog: add_dialogue::AddDialogModel::default(),
             mirror_dialog: mirror_dialogue::MirrorDialogModel::default(),
+            conflict_dialog: conflict_dialogue::ConflictDialogModel::default(),
+            delete_dialog: delete_dialogue::DeleteDialogModel::default(),
             engine: DownloadEngine::new(),
         }
     }
@@ -80,6 +88,15 @@ impl QdmApp {
         match message {
             Message::Tick => {
                 self.settings.tick_animation();
+            }
+            Message::SecondTick => {
+                if self.conflict_dialog.is_open {
+                    if self.conflict_dialog.tick_second() {
+                        return self.update(Message::ConflictDialogueMessages(
+                            conflict_dialogue::ConflictDialogMessage::AutoRenameChosen,
+                        ));
+                    }
+                }
             }
             Message::DownloadsLoaded(Ok(loaded_items)) => {
                 self.downloads = loaded_items;
@@ -287,22 +304,59 @@ impl QdmApp {
                 }
             }
             Message::CancelDownload(id) => {
-                self.downloads.retain(|d| d.id != id);
-                let engine = self.engine.clone();
-                let downloads_clone = self.downloads.clone();
-                return Task::perform(
-                    async move {
-                        engine.cancel(id).await;
-                        storage::json_store::save_downloads(&downloads_clone)
-                    },
-                    Message::DownloadsPersisted,
-                );
+                if let Some(action) = self.settings.delete_action {
+                    // Apply remembered preference immediately
+                    let item_opt = self.downloads.iter().find(|d| d.id == id).cloned();
+                    self.downloads.retain(|d| d.id != id);
+                    let engine = self.engine.clone();
+                    let downloads_clone = self.downloads.clone();
+                    return Task::perform(
+                        async move {
+                            engine.cancel(id).await;
+                            if action == settings::DeleteAction::DeleteFromDisk {
+                                if let Some(item) = item_opt {
+                                    let target = std::path::Path::new(&item.save_path).join(&item.filename);
+                                    let temp_target = std::path::Path::new(&item.save_path).join(format!("{}.qdmdownload", item.filename));
+                                    if target.exists() {
+                                        let _ = std::fs::remove_file(target);
+                                    }
+                                    if temp_target.exists() {
+                                        let _ = std::fs::remove_file(temp_target);
+                                    }
+                                }
+                            }
+                            storage::json_store::save_downloads(&downloads_clone)
+                        },
+                        Message::DownloadsPersisted,
+                    );
+                } else {
+                    // No remembered preference: prompt user with Delete Confirmation Modal
+                    if let Some(item) = self.downloads.iter().find(|d| d.id == id) {
+                        self.delete_dialog.open(delete_dialogue::DeletePendingItem {
+                            id,
+                            filename: item.filename.clone(),
+                            save_path: item.save_path.clone(),
+                        });
+                    }
+                }
             }
             Message::OpenFolder(id) => {
                 if let Some(item) = self.downloads.iter().find(|d| d.id == id) {
-                    let _ = std::process::Command::new("explorer")
-                        .arg(&item.save_path)
-                        .spawn();
+                    let target = std::path::Path::new(&item.save_path).join(&item.filename);
+                    let temp_target = std::path::Path::new(&item.save_path).join(format!("{}.qdmdownload", item.filename));
+                    if target.exists() {
+                        let _ = std::process::Command::new("explorer")
+                            .arg(format!("/select,{}", target.display()))
+                            .spawn();
+                    } else if temp_target.exists() {
+                        let _ = std::process::Command::new("explorer")
+                            .arg(format!("/select,{}", temp_target.display()))
+                            .spawn();
+                    } else {
+                        let _ = std::process::Command::new("explorer")
+                            .arg(&item.save_path)
+                            .spawn();
+                    }
                 }
             }
             Message::OpenMirrorsModal(id) => {
@@ -316,6 +370,24 @@ impl QdmApp {
                 }
             }
 
+            Message::SettingsMessage(settings::SettingsMessage::BrowseFolderPressed) => {
+                let current_folder = self.settings.download_folder.clone();
+                let task = async move {
+                    let mut dialog = rfd::AsyncFileDialog::new().set_title("Select Default Download Directory");
+                    if std::path::Path::new(&current_folder).exists() {
+                        dialog = dialog.set_directory(&current_folder);
+                    }
+                    if let Some(folder) = dialog.pick_folder().await {
+                        Some(folder.path().to_string_lossy().to_string())
+                    } else {
+                        None
+                    }
+                };
+                return Task::perform(task, |res| {
+                    Message::SettingsMessage(settings::SettingsMessage::BrowseFolderResult(res))
+                });
+            }
+
             Message::SettingsMessage(msg) => {
                 settings::update(&mut self.settings, msg);
             }
@@ -326,11 +398,41 @@ impl QdmApp {
                     return Task::none();
                 }
 
-                let filename = if self.add_dialog.filename.trim().is_empty() {
+                let mut filename = if self.add_dialog.filename.trim().is_empty() {
                     add_dialogue::extract_filename(&url, None)
                 } else {
                     self.add_dialog.filename.trim().to_string()
                 };
+
+                let save_path = self.add_dialog.save_to.clone();
+                let file_conflict = crate::core::utils::paths::file_exists_or_downloading(&save_path, &filename);
+
+                if file_conflict {
+                    match self.settings.file_conflict_action {
+                        Some(settings::FileConflictAction::AutoRename) => {
+                            filename = crate::core::utils::paths::generate_unique_filename(&save_path, &filename);
+                        }
+                        Some(settings::FileConflictAction::Overwrite) => {
+                            // Overwrite: keep filename as is
+                        }
+                        None => {
+                            let parsed_mirrors = self.add_dialog.parsed_mirrors();
+                            let max_connections = self.add_dialog.max_connections.trim().parse::<usize>().unwrap_or(8);
+                            let speed_limit = self.add_dialog.speed_limit.trim().parse::<usize>().unwrap_or(0);
+                            self.conflict_dialog.open(conflict_dialogue::ConflictPendingDownload {
+                                url,
+                                filename,
+                                save_to: save_path,
+                                max_connections,
+                                speed_limit,
+                                mirror_urls: parsed_mirrors,
+                            });
+                            self.add_dialog.is_open = false;
+                            self.add_dialog.reset();
+                            return Task::none();
+                        }
+                    }
+                }
 
                 let total_bytes = self
                     .add_dialog
@@ -346,7 +448,6 @@ impl QdmApp {
                     .unwrap_or(false);
 
                 let file_type = FileType::from_filename(&filename);
-                let save_path = self.add_dialog.save_to.clone();
 
                 let mirror_urls: Vec<DownloadUrl> = self
                     .add_dialog
@@ -406,9 +507,36 @@ impl QdmApp {
                     return Task::none();
                 }
 
-                let filename = add_dialogue::extract_filename(&url, None);
-                let file_type = FileType::from_filename(&filename);
+                let mut filename = add_dialogue::extract_filename(&url, None);
                 let save_path = self.add_dialog.save_to.clone();
+                let file_conflict = crate::core::utils::paths::file_exists_or_downloading(&save_path, &filename);
+
+                if file_conflict {
+                    match self.settings.file_conflict_action {
+                        Some(settings::FileConflictAction::AutoRename) => {
+                            filename = crate::core::utils::paths::generate_unique_filename(&save_path, &filename);
+                        }
+                        Some(settings::FileConflictAction::Overwrite) => {
+                            // Overwrite: keep filename
+                        }
+                        None => {
+                            let parsed_mirrors = self.add_dialog.parsed_mirrors();
+                            self.conflict_dialog.open(conflict_dialogue::ConflictPendingDownload {
+                                url,
+                                filename,
+                                save_to: save_path,
+                                max_connections: 8,
+                                speed_limit: 0,
+                                mirror_urls: parsed_mirrors,
+                            });
+                            self.add_dialog.is_open = false;
+                            self.add_dialog.reset();
+                            return Task::none();
+                        }
+                    }
+                }
+
+                let file_type = FileType::from_filename(&filename);
                 let mirror_urls: Vec<DownloadUrl> = self
                     .add_dialog
                     .parsed_mirrors()
@@ -568,6 +696,187 @@ impl QdmApp {
                 return task;
             }
 
+            Message::SyncWithDisk => {
+                let mut changed = false;
+                self.downloads.retain(|d| {
+                    let target = std::path::Path::new(&d.save_path).join(&d.filename);
+                    if matches!(d.state, DownloadState::Completed) {
+                        if !target.exists() {
+                            println!("[QDM Disk Sync] Removed externally deleted completed file: {}", d.filename);
+                            changed = true;
+                            return false;
+                        }
+                    }
+                    true
+                });
+
+                for d in &mut self.downloads {
+                    if !matches!(d.state, DownloadState::Completed) && d.downloaded_bytes > 0 {
+                        let target = std::path::Path::new(&d.save_path).join(&d.filename);
+                        let temp_target = std::path::Path::new(&d.save_path).join(format!("{}.qdmdownload", d.filename));
+                        if !target.exists() && !temp_target.exists() && !matches!(d.state, DownloadState::Failed { .. }) {
+                            println!("[QDM Disk Sync] Partial download missing on disk: {}", d.filename);
+                            d.state = DownloadState::Failed {
+                                downloaded_bytes: 0,
+                                total_bytes: d.total_bytes,
+                                error: "File removed or missing from destination folder".to_string(),
+                            };
+                            d.downloaded_bytes = 0;
+                            changed = true;
+                        }
+                    }
+                }
+
+                if changed {
+                    let downloads_clone = self.downloads.clone();
+                    return Task::perform(
+                        async move { storage::json_store::save_downloads(&downloads_clone) },
+                        Message::DownloadsPersisted,
+                    );
+                }
+            }
+
+            Message::ConflictDialogueMessages(msg) => match msg {
+                conflict_dialogue::ConflictDialogMessage::Close => {
+                    self.conflict_dialog.close();
+                }
+                conflict_dialogue::ConflictDialogMessage::ToggleRemember(val) => {
+                    self.conflict_dialog.remember_choice = val;
+                }
+                conflict_dialogue::ConflictDialogMessage::AutoRenameChosen => {
+                    if self.conflict_dialog.remember_choice {
+                        self.settings.file_conflict_action = Some(settings::FileConflictAction::AutoRename);
+                        let _ = storage::json_store::save_settings(&self.settings);
+                    }
+                    if let Some(pending) = self.conflict_dialog.pending.take() {
+                        let new_filename = crate::core::utils::paths::generate_unique_filename(&pending.save_to, &pending.filename);
+                        let file_type = FileType::from_filename(&new_filename);
+                        let mirror_urls: Vec<DownloadUrl> = pending.mirror_urls.into_iter().map(DownloadUrl::new).collect();
+                        let new_item = DownloadItem {
+                            id: 0,
+                            filename: new_filename,
+                            primary_url: DownloadUrl::new(&pending.url),
+                            mirror_urls,
+                            save_path: pending.save_to,
+                            downloaded_bytes: 0,
+                            total_bytes: None,
+                            state: DownloadState::FetchingMetadata,
+                            file_type,
+                            resumable: false,
+                            max_connections: pending.max_connections as u32,
+                            speed_limit_bps: if pending.speed_limit > 0 { Some(pending.speed_limit as u64 * 1024) } else { None },
+                            etag: None,
+                            last_modified: None,
+                            sha256_hash: None,
+                            chunks: Vec::new(),
+                            created_at: 0,
+                            updated_at: 0,
+                            completed_at: None,
+                        };
+                        self.conflict_dialog.close();
+                        return Task::perform(
+                            async move { storage::json_store::insert_download(new_item) },
+                            Message::DownloadSaved,
+                        );
+                    }
+                    self.conflict_dialog.close();
+                }
+                conflict_dialogue::ConflictDialogMessage::OverwriteChosen => {
+                    if self.conflict_dialog.remember_choice {
+                        self.settings.file_conflict_action = Some(settings::FileConflictAction::Overwrite);
+                        let _ = storage::json_store::save_settings(&self.settings);
+                    }
+                    if let Some(pending) = self.conflict_dialog.pending.take() {
+                        let file_type = FileType::from_filename(&pending.filename);
+                        let mirror_urls: Vec<DownloadUrl> = pending.mirror_urls.into_iter().map(DownloadUrl::new).collect();
+                        let new_item = DownloadItem {
+                            id: 0,
+                            filename: pending.filename,
+                            primary_url: DownloadUrl::new(&pending.url),
+                            mirror_urls,
+                            save_path: pending.save_to,
+                            downloaded_bytes: 0,
+                            total_bytes: None,
+                            state: DownloadState::FetchingMetadata,
+                            file_type,
+                            resumable: false,
+                            max_connections: pending.max_connections as u32,
+                            speed_limit_bps: if pending.speed_limit > 0 { Some(pending.speed_limit as u64 * 1024) } else { None },
+                            etag: None,
+                            last_modified: None,
+                            sha256_hash: None,
+                            chunks: Vec::new(),
+                            created_at: 0,
+                            updated_at: 0,
+                            completed_at: None,
+                        };
+                        self.conflict_dialog.close();
+                        return Task::perform(
+                            async move { storage::json_store::insert_download(new_item) },
+                            Message::DownloadSaved,
+                        );
+                    }
+                    self.conflict_dialog.close();
+                }
+            }
+
+            Message::DeleteDialogueMessages(msg) => match msg {
+                delete_dialogue::DeleteDialogMessage::Close => {
+                    self.delete_dialog.close();
+                }
+                delete_dialogue::DeleteDialogMessage::ToggleRemember(val) => {
+                    self.delete_dialog.remember_choice = val;
+                }
+                delete_dialogue::DeleteDialogMessage::RemoveFromListChosen => {
+                    if self.delete_dialog.remember_choice {
+                        self.settings.delete_action = Some(settings::DeleteAction::RemoveFromList);
+                        let _ = storage::json_store::save_settings(&self.settings);
+                    }
+                    if let Some(pending) = self.delete_dialog.pending.take() {
+                        self.downloads.retain(|d| d.id != pending.id);
+                        let engine = self.engine.clone();
+                        let downloads_clone = self.downloads.clone();
+                        self.delete_dialog.close();
+                        return Task::perform(
+                            async move {
+                                engine.cancel(pending.id).await;
+                                storage::json_store::save_downloads(&downloads_clone)
+                            },
+                            Message::DownloadsPersisted,
+                        );
+                    }
+                    self.delete_dialog.close();
+                }
+                delete_dialogue::DeleteDialogMessage::DeleteFromDiskChosen => {
+                    if self.delete_dialog.remember_choice {
+                        self.settings.delete_action = Some(settings::DeleteAction::DeleteFromDisk);
+                        let _ = storage::json_store::save_settings(&self.settings);
+                    }
+                    if let Some(pending) = self.delete_dialog.pending.take() {
+                        self.downloads.retain(|d| d.id != pending.id);
+                        let engine = self.engine.clone();
+                        let downloads_clone = self.downloads.clone();
+                        self.delete_dialog.close();
+                        return Task::perform(
+                            async move {
+                                engine.cancel(pending.id).await;
+                                let target = std::path::Path::new(&pending.save_path).join(&pending.filename);
+                                let temp_target = std::path::Path::new(&pending.save_path).join(format!("{}.qdmdownload", pending.filename));
+                                if target.exists() {
+                                    let _ = std::fs::remove_file(target);
+                                }
+                                if temp_target.exists() {
+                                    let _ = std::fs::remove_file(temp_target);
+                                }
+                                storage::json_store::save_downloads(&downloads_clone)
+                            },
+                            Message::DownloadsPersisted,
+                        );
+                    }
+                    self.delete_dialog.close();
+                }
+            }
+
             Message::DownloadsPersisted(Err(err)) => {
                 println!("[QDM Storage Error] Failed to persist downloads: {}", err);
             }
@@ -600,7 +909,10 @@ impl QdmApp {
             Subscription::none()
         };
 
-        Subscription::batch([engine_sub, anim_sub])
+        let second_tick_sub = iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::SecondTick);
+        let disk_sync_sub = iced::time::every(std::time::Duration::from_secs(5)).map(|_| Message::SyncWithDisk);
+
+        Subscription::batch([engine_sub, anim_sub, second_tick_sub, disk_sync_sub])
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -717,7 +1029,17 @@ impl QdmApp {
                 ..Default::default()
             });
 
-        if self.add_dialog.is_open {
+        if self.conflict_dialog.is_open {
+            let conflict_modal =
+                conflict_dialogue::view(&self.conflict_dialog).map(Message::ConflictDialogueMessages);
+
+            stack![base_view, conflict_modal].into()
+        } else if self.delete_dialog.is_open {
+            let delete_modal =
+                delete_dialogue::view(&self.delete_dialog).map(Message::DeleteDialogueMessages);
+
+            stack![base_view, delete_modal].into()
+        } else if self.add_dialog.is_open {
             let dialog_modal =
                 add_dialogue::view(&self.add_dialog).map(Message::AddDialogueModalMessages);
 

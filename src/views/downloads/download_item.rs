@@ -153,7 +153,10 @@ where
             let folder_btn = button(icon(icons::ICON_FOLDER).size(14))
                 .style(styles::icon_button_style)
                 .on_press(on_open_folder(item_id));
-            row![mirrors_btn, folder_btn].spacing(10).align_y(Alignment::Center).into()
+            let trash_btn = button(icon(icons::ICON_TRASH).size(14))
+                .style(styles::icon_button_style)
+                .on_press(on_cancel(item_id));
+            row![mirrors_btn, folder_btn, trash_btn].spacing(10).align_y(Alignment::Center).into()
         }
         DownloadState::Paused { .. } => {
             let play_btn = button(icon(icons::ICON_PLAY).size(14))
