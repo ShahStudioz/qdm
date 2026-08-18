@@ -139,6 +139,20 @@ impl QdmApp {
                         item.total_bytes = total_bytes;
                     }
                     item.chunks = chunks;
+
+                    // Guard: Never allow trailing ProgressUpdated events to revert a Completed or Paused/Failed download
+                    if matches!(item.state, DownloadState::Completed | DownloadState::Failed { .. } | DownloadState::Paused { .. }) {
+                        return Task::none();
+                    }
+
+                    // If all bytes have been downloaded, transition to Completed
+                    if let Some(total) = item.total_bytes {
+                        if total > 0 && downloaded_bytes >= total {
+                            item.state = DownloadState::Completed;
+                            return Task::none();
+                        }
+                    }
+
                     item.state = DownloadState::Downloading {
                         downloaded_bytes,
                         total_bytes: item.total_bytes,
@@ -157,6 +171,9 @@ impl QdmApp {
                 if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
                     println!("[QDM UI] Item {} completed successfully! SHA-256: {:?}", id, sha256);
                     item.state = DownloadState::Completed;
+                    if let Some(total) = item.total_bytes {
+                        item.downloaded_bytes = total;
+                    }
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_secs())

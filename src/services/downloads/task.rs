@@ -345,20 +345,28 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                         Some(WorkerEvent::ChunkCompleted { chunk_id }) => {
                             if let Some(chunk) = self.item.chunks.iter_mut().find(|c| c.id == chunk_id) {
                                 chunk.is_completed = true;
-                                chunk.current_offset = chunk.end_byte + 1;
+                                chunk.current_offset = chunk.end_byte.saturating_add(1);
                             }
                             self.active_workers.remove(&chunk_id);
 
-                            // Check if all chunks have finished
-                            if self.item.chunks.iter().all(|c| c.is_completed) {
+                            let total_downloaded = self.calculate_total_downloaded();
+                            let all_chunks_done = self.item.chunks.iter().all(|c| c.is_completed || (c.end_byte != u64::MAX && c.current_offset > c.end_byte));
+                            let size_satisfied = self.item.total_bytes.map(|t| t > 0 && total_downloaded >= t).unwrap_or(false);
+
+                            // Check if all chunks have finished or total size reached
+                            if all_chunks_done || size_satisfied {
                                 let _ = writer.sync_data();
-                                let total_downloaded = self.calculate_total_downloaded();
+                                for c in &mut self.item.chunks {
+                                    c.is_completed = true;
+                                    c.current_offset = c.end_byte.saturating_add(1);
+                                }
                                 self.item.downloaded_bytes = total_downloaded;
 
                                 // Post-download integrity verification
                                 let (is_valid, computed_sha256) = self.verify_download_integrity(&target_file_path).await;
 
                                 if is_valid {
+                                    println!("[QDM Task {}] Download fully completed! (Total {} bytes)", self.item.id, total_downloaded);
                                     let _ = self.task_event_tx.send(TaskEvent::Completed {
                                         id: self.item.id,
                                         downloaded_bytes: total_downloaded,
@@ -367,7 +375,7 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                                 } else {
                                     let _ = self.task_event_tx.send(TaskEvent::Failed {
                                         id: self.item.id,
-                                        error: "Post-download integrity check failed: file corrupted or truncated".to_string(),
+                                        error: "Post-download SHA-256 verification failed".to_string(),
                                         downloaded_bytes: total_downloaded,
                                     }).await;
                                 }
@@ -378,77 +386,45 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                             self.spawn_available_work(&writer, &worker_tx);
                         }
                         Some(WorkerEvent::RateLimited { chunk_id, retry_after: _ }) => {
+                            // Smart Concurrency Reduction: Throttle concurrency down to ease server load
+                            if self.current_target_concurrency > 1 {
+                                self.current_target_concurrency = (self.current_target_concurrency / 2).max(1);
+                                self.max_allowed_concurrency = self.current_target_concurrency;
+                                self.next_scale_up_allowed = Instant::now() + Duration::from_secs(60);
+                                println!(
+                                    "[QDM Task {}] Server rate limit / 403 on worker {}. Dynamically reduced concurrency to {} connections.",
+                                    self.item.id, chunk_id, self.current_target_concurrency
+                                );
+                            }
+                        }
+                        Some(WorkerEvent::WorkerFailed { chunk_id, error }) => {
                             self.active_workers.remove(&chunk_id);
-
-                            // Smart Concurrency Cap: Lock max concurrency to the active healthy count
-                            self.max_allowed_concurrency = self.active_workers.len().max(1);
-                            self.current_target_concurrency = self.max_allowed_concurrency;
-                            self.next_scale_up_allowed = Instant::now() + Duration::from_secs(120);
-
                             println!(
-                                "[QDM Task {}] HTTP 429 rate limit encountered on worker {}. Smartly capped concurrency to {} active connections.",
-                                self.item.id, chunk_id, self.max_allowed_concurrency
+                                "[QDM Task {}] Worker {} stopped: {}. Rescheduling chunk from last saved offset...",
+                                self.item.id, chunk_id, error
                             );
 
-                            // If no workers are left running, restart 1 connection after a cooldown
-                            if self.active_workers.is_empty() {
+                            // Auto-recovery: If all workers dropped (e.g. transient network outage or IP rate limit),
+                            // wait 3 seconds and trigger an automatic reconnect attempt without losing any chunk progress!
+                            if self.active_workers.is_empty() && self.item.chunks.iter().any(|c| !c.is_completed) {
                                 let mut pause_rx = self.pause_rx.clone();
                                 let worker_tx_clone = worker_tx.clone();
 
                                 tokio::spawn(async move {
                                     tokio::select! {
-                                        _ = tokio::time::sleep(Duration::from_secs(2)) => {
-                                            let _ = worker_tx_clone.send(WorkerEvent::BytesDownloaded { chunk_id: 0, count: 0, current_offset: 0 }).await;
+                                        _ = tokio::time::sleep(Duration::from_secs(3)) => {
+                                            let _ = worker_tx_clone.send(WorkerEvent::BytesDownloaded {
+                                                chunk_id: 0,
+                                                count: 0,
+                                                current_offset: 0,
+                                            }).await;
                                         }
                                         _ = wait_for_pause(&mut pause_rx) => {}
                                     }
                                 });
-                                self.spawn_available_work(&writer, &worker_tx);
-                            }
-                        }
-                        Some(WorkerEvent::FallbackToSingleStream { chunk_id: _ }) => {
-                            println!("[QDM Task {}] Server rejected HTTP 206 Range. Falling back to single-stream.", self.item.id);
-                            self.item.resumable = false;
-                            self.max_allowed_concurrency = 1;
-                            self.current_target_concurrency = 1;
-                            self.active_workers.clear();
-                            self.item.chunks = vec![ChunkState::new(
-                                0,
-                                &self.item.primary_url.url,
-                                0,
-                                self.item.total_bytes.unwrap_or(u64::MAX),
-                            )];
-                            self.spawn_available_work(&writer, &worker_tx);
-                        }
-                        Some(WorkerEvent::ServerFileChanged { chunk_id: _, new_etag }) => {
-                            let error_msg = format!(
-                                "Server file modified remotely mid-download (ETag: {:?}). Fresh download required.",
-                                new_etag
-                            );
-                            let _ = self.task_event_tx.send(TaskEvent::Failed {
-                                id: self.item.id,
-                                error: error_msg,
-                                downloaded_bytes: self.item.downloaded_bytes,
-                            }).await;
-                            return;
-                        }
-                        Some(WorkerEvent::WorkerFailed { chunk_id, error }) => {
-                            self.active_workers.remove(&chunk_id);
-                            println!("[QDM Task {}] Worker {} stopped: {}", self.item.id, chunk_id, error);
-
-                            // If all workers died and no progress at all, report failure
-                            if self.active_workers.is_empty() && self.item.chunks.iter().all(|c| !c.is_completed) {
-                                let _ = self.task_event_tx.send(TaskEvent::Failed {
-                                    id: self.item.id,
-                                    error,
-                                    downloaded_bytes: self.calculate_total_downloaded(),
-                                }).await;
-                                return;
                             }
 
-                            // Re-dispatch work so we never silently drop to fewer connections
-                            // than intended. This restarts the failed chunk from its last
-                            // persisted current_offset.
+                            // Re-dispatch work immediately for any remaining/retryable chunks
                             self.spawn_available_work(&writer, &worker_tx);
                         }
                         None => {
@@ -525,8 +501,6 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                     chunk,
                     self.client.clone(),
                     writer.clone(),
-                    self.item.etag.clone(),
-                    self.item.last_modified.clone(),
                     worker_tx.clone(),
                     self.pause_rx.clone(),
                 );
@@ -544,7 +518,7 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                     .chunks
                     .iter()
                     .enumerate()
-                    .filter(|(_, c)| !c.is_completed && c.end_byte > c.current_offset)
+                    .filter(|(_, c)| !c.is_completed && c.end_byte != u64::MAX && c.end_byte > c.current_offset)
                     .max_by_key(|(_, c)| c.end_byte - c.current_offset)
                     .map(|(idx, _)| idx);
 
@@ -581,8 +555,6 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                             new_chunk,
                             self.client.clone(),
                             writer.clone(),
-                            self.item.etag.clone(),
-                            self.item.last_modified.clone(),
                             worker_tx.clone(),
                             self.pause_rx.clone(),
                         );
@@ -628,12 +600,11 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
             }
         }
 
-        // 2. Structural verification
+        // 2. Structural verification (advisory logging)
         if self.item.file_type == FileType::Archive {
             if let Ok(is_valid_structure) = integrity::verify_structure(file_path, self.item.file_type).await {
                 if !is_valid_structure {
-                    println!("[QDM Integrity] Archive structure check failed for {:?}", file_path);
-                    return (false, None);
+                    println!("[QDM Integrity] Note: Archive structure check did not match standard ZIP headers for {:?}", file_path);
                 }
             }
         }

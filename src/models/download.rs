@@ -145,7 +145,12 @@ impl ChunkState {
 
     pub fn downloaded_bytes(&self) -> u64 {
         if self.current_offset >= self.start_byte {
-            (self.current_offset - self.start_byte).min(self.total_chunk_bytes())
+            let downloaded = self.current_offset - self.start_byte;
+            if self.end_byte == u64::MAX {
+                downloaded
+            } else {
+                downloaded.min(self.total_chunk_bytes())
+            }
         } else {
             0
         }
@@ -153,7 +158,11 @@ impl ChunkState {
 
     pub fn total_chunk_bytes(&self) -> u64 {
         if self.end_byte >= self.start_byte {
-            (self.end_byte - self.start_byte) + 1
+            if self.end_byte == u64::MAX {
+                u64::MAX - self.start_byte
+            } else {
+                (self.end_byte - self.start_byte).saturating_add(1)
+            }
         } else {
             0
         }
