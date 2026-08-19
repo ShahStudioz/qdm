@@ -1,4 +1,4 @@
-﻿// Library crate root - exposes only what the speed_debug binary needs.
+// Library crate root - exposes only what the speed_debug binary needs.
 // Excludes views/app/theme/services::storage to avoid pulling iced UI deps.
 
 pub mod models;
@@ -11,9 +11,11 @@ pub mod services {
         pub mod integrity;
         pub mod metadata;
         pub mod task;
+        pub mod throttler;
         pub mod worker;
         pub mod writer;
     }
+    pub mod network;
 }
 
 pub mod core {

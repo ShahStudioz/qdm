@@ -11,24 +11,46 @@
 //! - **ETag / Last-Modified Validation**: Prevents resuming corrupted files if the remote source has changed.
 //! - **Atomic Positional Disk Writes**: Streams bytes directly to exact disk offsets via `PositionalWriter`.
 
-use std::time::Duration;
-use reqwest::header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, HeaderMap, RANGE, RETRY_AFTER};
+use reqwest::header::{
+    HeaderMap, ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, RANGE, RETRY_AFTER,
+};
 use reqwest::{Client, StatusCode};
+use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 
 use crate::models::download::ChunkState;
 use crate::services::downloads::diagnostics::{DiagEvent, DiagSender};
+use crate::services::downloads::throttler::Throttler;
 use crate::services::downloads::writer::PositionalWriter;
+use crate::services::network::connectivity::ConnectivityMonitor;
 
 /// Events reported by individual chunk workers back to the download task controller.
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum WorkerEvent {
-    MetadataDiscovered { total_bytes: u64, resumable: bool },
-    BytesDownloaded { chunk_id: usize, count: u64, current_offset: u64 },
-    ChunkCompleted { chunk_id: usize },
-    RateLimited { chunk_id: usize, retry_after: Option<Duration> },
-    WorkerFailed { chunk_id: usize, error: String },
+    MetadataDiscovered {
+        total_bytes: u64,
+        resumable: bool,
+    },
+    BytesDownloaded {
+        chunk_id: usize,
+        count: u64,
+        current_offset: u64,
+    },
+    ChunkCompleted {
+        chunk_id: usize,
+    },
+    RateLimited {
+        chunk_id: usize,
+        retry_after: Option<Duration>,
+    },
+    NetworkLost {
+        chunk_id: usize,
+    },
+    WorkerFailed {
+        chunk_id: usize,
+        error: String,
+    },
 }
 
 pub struct ChunkWorker {
@@ -38,6 +60,7 @@ pub struct ChunkWorker {
     pub event_tx: mpsc::Sender<WorkerEvent>,
     pub pause_rx: watch::Receiver<bool>,
     pub diag: Option<DiagSender>,
+    pub throttler: Option<Throttler>,
 }
 
 /// Asynchronously waits until the pause receiver becomes `true`.
@@ -63,11 +86,24 @@ impl ChunkWorker {
         event_tx: mpsc::Sender<WorkerEvent>,
         pause_rx: watch::Receiver<bool>,
     ) -> Self {
-        Self { chunk, client, writer, event_tx, pause_rx, diag: None }
+        Self {
+            chunk,
+            client,
+            writer,
+            event_tx,
+            pause_rx,
+            diag: None,
+            throttler: None,
+        }
     }
 
     pub fn with_diag(mut self, diag: DiagSender) -> Self {
         self.diag = Some(diag);
+        self
+    }
+
+    pub fn with_throttler(mut self, throttler: Option<Throttler>) -> Self {
+        self.throttler = throttler;
         self
     }
 
@@ -82,7 +118,12 @@ impl ChunkWorker {
         }
 
         if self.chunk.end_byte != u64::MAX && self.chunk.current_offset > self.chunk.end_byte {
-            let _ = self.event_tx.send(WorkerEvent::ChunkCompleted { chunk_id: self.chunk.id }).await;
+            let _ = self
+                .event_tx
+                .send(WorkerEvent::ChunkCompleted {
+                    chunk_id: self.chunk.id,
+                })
+                .await;
             return;
         }
 
@@ -90,20 +131,29 @@ impl ChunkWorker {
         const MAX_RETRIES: u32 = 10;
 
         loop {
-            if *self.pause_rx.borrow() { let _ = self.writer.sync_data(); return; }
+            if *self.pause_rx.borrow() {
+                let _ = self.writer.sync_data();
+                return;
+            }
 
             // Range request: use open-ended range if end_byte is unknown (u64::MAX)
             let range_header = if self.chunk.end_byte == u64::MAX {
                 format!("bytes={}-", self.chunk.current_offset)
             } else {
-                format!("bytes={}-{}", self.chunk.current_offset, self.chunk.end_byte)
+                format!(
+                    "bytes={}-{}",
+                    self.chunk.current_offset, self.chunk.end_byte
+                )
             };
             let req = self.client.get(&self.chunk.url).header(RANGE, range_header);
 
             if let Some(ref d) = self.diag {
                 d.emit(DiagEvent::WorkerRequestStart {
-                    ts: d.now(), chunk_id: self.chunk.id,
-                    range_start: self.chunk.current_offset, range_end: self.chunk.end_byte, retry: retry_count,
+                    ts: d.now(),
+                    chunk_id: self.chunk.id,
+                    range_start: self.chunk.current_offset,
+                    range_end: self.chunk.end_byte,
+                    retry: retry_count,
                 });
             }
 
@@ -119,7 +169,11 @@ impl ChunkWorker {
                 Ok(resp) => {
                     let status = resp.status();
                     if let Some(ref d) = self.diag {
-                        d.emit(DiagEvent::WorkerFirstByte { ts: d.now(), chunk_id: self.chunk.id, status: status.as_u16() });
+                        d.emit(DiagEvent::WorkerFirstByte {
+                            ts: d.now(),
+                            chunk_id: self.chunk.id,
+                            status: status.as_u16(),
+                        });
                     }
 
                     // 1. Rate Limiting & Overload (HTTP 429, 403 Forbidden, 503 Service Unavailable)
@@ -128,13 +182,17 @@ impl ChunkWorker {
                         || status == StatusCode::SERVICE_UNAVAILABLE
                     {
                         retry_count += 1;
-                        let retry_after = parse_retry_after(resp.headers())
-                            .unwrap_or_else(|| Duration::from_millis(1000 * (1u64 << retry_count.min(4))));
+                        let retry_after = parse_retry_after(resp.headers()).unwrap_or_else(|| {
+                            Duration::from_millis(1000 * (1u64 << retry_count.min(4)))
+                        });
 
-                        let _ = self.event_tx.send(WorkerEvent::RateLimited {
-                            chunk_id: self.chunk.id,
-                            retry_after: Some(retry_after),
-                        }).await;
+                        let _ = self
+                            .event_tx
+                            .send(WorkerEvent::RateLimited {
+                                chunk_id: self.chunk.id,
+                                retry_after: Some(retry_after),
+                            })
+                            .await;
 
                         if retry_count <= MAX_RETRIES {
                             println!(
@@ -150,10 +208,16 @@ impl ChunkWorker {
                             }
                             continue;
                         } else {
-                            let _ = self.event_tx.send(WorkerEvent::WorkerFailed {
-                                chunk_id: self.chunk.id,
-                                error: format!("Server returned persistent error HTTP {}", status),
-                            }).await;
+                            let _ = self
+                                .event_tx
+                                .send(WorkerEvent::WorkerFailed {
+                                    chunk_id: self.chunk.id,
+                                    error: format!(
+                                        "Server returned persistent error HTTP {}",
+                                        status
+                                    ),
+                                })
+                                .await;
                             return;
                         }
                     }
@@ -166,7 +230,8 @@ impl ChunkWorker {
                             // Server ignored Range for a non-zero offset; retry range request with backoff
                             retry_count += 1;
                             if retry_count <= MAX_RETRIES {
-                                let backoff = Duration::from_millis(500 * (1u64 << retry_count.min(3)));
+                                let backoff =
+                                    Duration::from_millis(500 * (1u64 << retry_count.min(3)));
                                 println!(
                                     "[QDM Worker {}] Server returned HTTP 200 for offset {}. Retrying Range header in {:.1}s...",
                                     self.chunk.id, self.chunk.current_offset, backoff.as_secs_f64()
@@ -180,10 +245,15 @@ impl ChunkWorker {
                                 }
                                 continue;
                             } else {
-                                let _ = self.event_tx.send(WorkerEvent::WorkerFailed {
-                                    chunk_id: self.chunk.id,
-                                    error: "Server ignored Range header on multiple retry attempts".to_string(),
-                                }).await;
+                                let _ = self
+                                    .event_tx
+                                    .send(WorkerEvent::WorkerFailed {
+                                        chunk_id: self.chunk.id,
+                                        error:
+                                            "Server ignored Range header on multiple retry attempts"
+                                                .to_string(),
+                                    })
+                                    .await;
                                 return;
                             }
                         }
@@ -192,7 +262,12 @@ impl ChunkWorker {
                     // 3. HTTP 416 Range Not Satisfiable
                     if status == StatusCode::RANGE_NOT_SATISFIABLE {
                         if self.chunk.current_offset >= self.chunk.end_byte {
-                            let _ = self.event_tx.send(WorkerEvent::ChunkCompleted { chunk_id: self.chunk.id }).await;
+                            let _ = self
+                                .event_tx
+                                .send(WorkerEvent::ChunkCompleted {
+                                    chunk_id: self.chunk.id,
+                                })
+                                .await;
                             return;
                         }
                     }
@@ -201,7 +276,8 @@ impl ChunkWorker {
                     if !status.is_success() {
                         retry_count += 1;
                         if retry_count <= MAX_RETRIES {
-                            let backoff = Duration::from_millis(1000 * (1u64 << retry_count.min(3)));
+                            let backoff =
+                                Duration::from_millis(1000 * (1u64 << retry_count.min(3)));
                             println!(
                                 "[QDM Worker {}] Server returned HTTP error {}. Retrying in {:.1}s...",
                                 self.chunk.id, status, backoff.as_secs_f64()
@@ -215,10 +291,13 @@ impl ChunkWorker {
                             }
                             continue;
                         } else {
-                            let _ = self.event_tx.send(WorkerEvent::WorkerFailed {
-                                chunk_id: self.chunk.id,
-                                error: format!("Server returned error HTTP {}", status),
-                            }).await;
+                            let _ = self
+                                .event_tx
+                                .send(WorkerEvent::WorkerFailed {
+                                    chunk_id: self.chunk.id,
+                                    error: format!("Server returned error HTTP {}", status),
+                                })
+                                .await;
                             return;
                         }
                     }
@@ -236,24 +315,31 @@ impl ChunkWorker {
 
                     let mut discovered_length = None;
                     if status == StatusCode::PARTIAL_CONTENT {
-                        if let Some(content_range) = headers.get(CONTENT_RANGE).and_then(|v| v.to_str().ok()) {
+                        if let Some(content_range) =
+                            headers.get(CONTENT_RANGE).and_then(|v| v.to_str().ok())
+                        {
                             if let Some(total_str) = content_range.split('/').last() {
                                 if let Ok(total) = total_str.trim().parse::<u64>() {
                                     discovered_length = Some(total);
                                 }
                             }
                         }
-                    } else if let Some(len_val) = headers.get(CONTENT_LENGTH).and_then(|v| v.to_str().ok()) {
+                    } else if let Some(len_val) =
+                        headers.get(CONTENT_LENGTH).and_then(|v| v.to_str().ok())
+                    {
                         if let Ok(len) = len_val.trim().parse::<u64>() {
                             discovered_length = Some(len);
                         }
                     }
 
                     if let Some(total) = discovered_length {
-                        let _ = self.event_tx.send(WorkerEvent::MetadataDiscovered {
-                            total_bytes: total,
-                            resumable: supports_resume,
-                        }).await;
+                        let _ = self
+                            .event_tx
+                            .send(WorkerEvent::MetadataDiscovered {
+                                total_bytes: total,
+                                resumable: supports_resume,
+                            })
+                            .await;
                     }
 
                     let mut stream = resp;
@@ -264,7 +350,9 @@ impl ChunkWorker {
 
                     loop {
                         if *self.pause_rx.borrow() {
-                            if !write_buffer.is_empty() { let _ = self.writer.write_at(buffer_start_offset, &write_buffer); }
+                            if !write_buffer.is_empty() {
+                                let _ = self.writer.write_at(buffer_start_offset, &write_buffer);
+                            }
                             let _ = self.writer.sync_data();
                             return;
                         }
@@ -281,13 +369,22 @@ impl ChunkWorker {
                         match chunk_result {
                             Ok(Some(bytes)) => {
                                 let len = bytes.len() as u64;
-                                let max_writable = if self.chunk.end_byte != u64::MAX && self.chunk.current_offset.saturating_add(len) > self.chunk.end_byte.saturating_add(1) {
-                                    (self.chunk.end_byte.saturating_add(1)).saturating_sub(self.chunk.current_offset) as usize
+                                let max_writable = if self.chunk.end_byte != u64::MAX
+                                    && self.chunk.current_offset.saturating_add(len)
+                                        > self.chunk.end_byte.saturating_add(1)
+                                {
+                                    (self.chunk.end_byte.saturating_add(1))
+                                        .saturating_sub(self.chunk.current_offset)
+                                        as usize
                                 } else {
                                     bytes.len()
                                 };
 
                                 if max_writable > 0 {
+                                    if let Some(ref throttler) = self.throttler {
+                                        throttler.acquire(max_writable).await;
+                                    }
+
                                     let slice = &bytes[..max_writable];
                                     write_buffer.extend_from_slice(slice);
                                     self.chunk.current_offset += max_writable as u64;
@@ -295,31 +392,46 @@ impl ChunkWorker {
 
                                     if let Some(ref d) = self.diag {
                                         d.emit(DiagEvent::WorkerBytesBuffered {
-                                             ts: d.now(), chunk_id: self.chunk.id,
-                                             count: max_writable as u64, current_offset: self.chunk.current_offset,
-                                             buffer_len: write_buffer.len(),
+                                            ts: d.now(),
+                                            chunk_id: self.chunk.id,
+                                            count: max_writable as u64,
+                                            current_offset: self.chunk.current_offset,
+                                            buffer_len: write_buffer.len(),
                                         });
                                     }
 
-                                    let _ = self.event_tx.send(WorkerEvent::BytesDownloaded {
-                                        chunk_id: self.chunk.id, count: max_writable as u64,
-                                        current_offset: self.chunk.current_offset,
-                                    }).await;
+                                    let _ = self
+                                        .event_tx
+                                        .send(WorkerEvent::BytesDownloaded {
+                                            chunk_id: self.chunk.id,
+                                            count: max_writable as u64,
+                                            current_offset: self.chunk.current_offset,
+                                        })
+                                        .await;
 
-                                    let chunk_done = self.chunk.end_byte != u64::MAX && self.chunk.current_offset > self.chunk.end_byte;
+                                    let chunk_done = self.chunk.end_byte != u64::MAX
+                                        && self.chunk.current_offset > self.chunk.end_byte;
                                     if write_buffer.len() >= WRITE_BUFFER_THRESHOLD || chunk_done {
                                         let flush_offset = buffer_start_offset;
                                         let flush_len = write_buffer.len();
-                                        if let Err(err) = self.writer.write_at(flush_offset, &write_buffer) {
-                                            let _ = self.event_tx.send(WorkerEvent::WorkerFailed {
-                                                chunk_id: self.chunk.id, error: format!("Disk write failure: {}", err),
-                                            }).await;
+                                        if let Err(err) =
+                                            self.writer.write_at(flush_offset, &write_buffer)
+                                        {
+                                            let _ = self
+                                                .event_tx
+                                                .send(WorkerEvent::WorkerFailed {
+                                                    chunk_id: self.chunk.id,
+                                                    error: format!("Disk write failure: {}", err),
+                                                })
+                                                .await;
                                             return;
                                         }
                                         if let Some(ref d) = self.diag {
                                             d.emit(DiagEvent::WorkerDiskFlush {
-                                                ts: d.now(), chunk_id: self.chunk.id,
-                                                flushed_bytes: flush_len, flush_offset,
+                                                ts: d.now(),
+                                                chunk_id: self.chunk.id,
+                                                flushed_bytes: flush_len,
+                                                flush_offset,
                                             });
                                         }
                                         buffer_start_offset = self.chunk.current_offset;
@@ -327,31 +439,51 @@ impl ChunkWorker {
                                     }
                                 }
 
-                                if self.chunk.end_byte != u64::MAX && self.chunk.current_offset > self.chunk.end_byte {
+                                if self.chunk.end_byte != u64::MAX
+                                    && self.chunk.current_offset > self.chunk.end_byte
+                                {
                                     break;
                                 }
                             }
                             Ok(None) => {
                                 if !write_buffer.is_empty() {
-                                    if let Err(err) = self.writer.write_at(buffer_start_offset, &write_buffer) {
-                                        let _ = self.event_tx.send(WorkerEvent::WorkerFailed {
-                                            chunk_id: self.chunk.id, error: format!("Disk write failure on stream-end flush: {}", err),
-                                        }).await;
+                                    if let Err(err) =
+                                        self.writer.write_at(buffer_start_offset, &write_buffer)
+                                    {
+                                        let _ = self
+                                            .event_tx
+                                            .send(WorkerEvent::WorkerFailed {
+                                                chunk_id: self.chunk.id,
+                                                error: format!(
+                                                    "Disk write failure on stream-end flush: {}",
+                                                    err
+                                                ),
+                                            })
+                                            .await;
                                         return;
                                     }
                                     write_buffer.clear();
                                 }
-                                let premature = self.chunk.end_byte != u64::MAX && self.chunk.current_offset <= self.chunk.end_byte;
+                                let premature = self.chunk.end_byte != u64::MAX
+                                    && self.chunk.current_offset <= self.chunk.end_byte;
                                 if let Some(ref d) = self.diag {
                                     d.emit(DiagEvent::WorkerStreamEnd {
-                                        ts: d.now(), chunk_id: self.chunk.id, premature,
-                                        current_offset: self.chunk.current_offset, end_byte: self.chunk.end_byte,
+                                        ts: d.now(),
+                                        chunk_id: self.chunk.id,
+                                        premature,
+                                        current_offset: self.chunk.current_offset,
+                                        end_byte: self.chunk.end_byte,
                                     });
                                 }
                                 if !premature {
                                     // For open-ended (u64::MAX) or completed streams, Ok(None) signifies clean completion!
                                     self.chunk.is_completed = true;
-                                    let _ = self.event_tx.send(WorkerEvent::ChunkCompleted { chunk_id: self.chunk.id }).await;
+                                    let _ = self
+                                        .event_tx
+                                        .send(WorkerEvent::ChunkCompleted {
+                                            chunk_id: self.chunk.id,
+                                        })
+                                        .await;
                                     return;
                                 }
                                 retry_count += 1;
@@ -363,63 +495,123 @@ impl ChunkWorker {
                                     }).await;
                                     return;
                                 }
-                                tokio::time::sleep(Duration::from_millis(200 * (1u64 << retry_count.min(3)))).await;
+                                tokio::time::sleep(Duration::from_millis(
+                                    200 * (1u64 << retry_count.min(3)),
+                                ))
+                                .await;
                                 break;
                             }
                             Err(err) => {
                                 if let Some(ref d) = self.diag {
                                     d.emit(DiagEvent::WorkerStreamError {
-                                        ts: d.now(), chunk_id: self.chunk.id, error: err.to_string(), retry: retry_count,
+                                        ts: d.now(),
+                                        chunk_id: self.chunk.id,
+                                        error: err.to_string(),
+                                        retry: retry_count,
                                     });
                                 }
                                 if !write_buffer.is_empty() {
-                                    if let Err(write_err) = self.writer.write_at(buffer_start_offset, &write_buffer) {
-                                        let _ = self.event_tx.send(WorkerEvent::WorkerFailed {
-                                            chunk_id: self.chunk.id, error: format!("Disk write failure on retry flush: {}", write_err),
-                                        }).await;
+                                    if let Err(write_err) =
+                                        self.writer.write_at(buffer_start_offset, &write_buffer)
+                                    {
+                                        let _ = self
+                                            .event_tx
+                                            .send(WorkerEvent::WorkerFailed {
+                                                chunk_id: self.chunk.id,
+                                                error: format!(
+                                                    "Disk write failure on retry flush: {}",
+                                                    write_err
+                                                ),
+                                            })
+                                            .await;
                                         return;
                                     }
                                     write_buffer.clear();
                                 }
-                                retry_count += 1;
-                                if retry_count > MAX_RETRIES {
-                                    let _ = self.event_tx.send(WorkerEvent::WorkerFailed {
-                                        chunk_id: self.chunk.id, error: format!("Stream interrupted: {}", err),
-                                    }).await;
+
+                                if !ConnectivityMonitor::is_online().await {
+                                    let _ = self
+                                        .event_tx
+                                        .send(WorkerEvent::NetworkLost {
+                                            chunk_id: self.chunk.id,
+                                        })
+                                        .await;
                                     return;
                                 }
-                                tokio::time::sleep(Duration::from_millis(500 * (1 << retry_count.min(4)))).await;
+
+                                retry_count += 1;
+                                if retry_count > MAX_RETRIES {
+                                    let _ = self
+                                        .event_tx
+                                        .send(WorkerEvent::WorkerFailed {
+                                            chunk_id: self.chunk.id,
+                                            error: format!("Stream interrupted: {}", err),
+                                        })
+                                        .await;
+                                    return;
+                                }
+                                tokio::time::sleep(Duration::from_millis(
+                                    500 * (1 << retry_count.min(4)),
+                                ))
+                                .await;
                                 break;
                             }
                         }
                     }
 
-                    if self.chunk.end_byte == u64::MAX || self.chunk.current_offset > self.chunk.end_byte {
+                    if self.chunk.end_byte == u64::MAX
+                        || self.chunk.current_offset > self.chunk.end_byte
+                    {
                         self.chunk.is_completed = true;
                         if let Some(ref d) = self.diag {
                             d.emit(DiagEvent::WorkerChunkCompleted {
-                                ts: d.now(), chunk_id: self.chunk.id, total_bytes: total_bytes_this_stream,
+                                ts: d.now(),
+                                chunk_id: self.chunk.id,
+                                total_bytes: total_bytes_this_stream,
                             });
                         }
-                        let _ = self.event_tx.send(WorkerEvent::ChunkCompleted { chunk_id: self.chunk.id }).await;
+                        let _ = self
+                            .event_tx
+                            .send(WorkerEvent::ChunkCompleted {
+                                chunk_id: self.chunk.id,
+                            })
+                            .await;
                         return;
                     }
                 }
                 Err(err) => {
                     if let Some(ref d) = self.diag {
                         d.emit(DiagEvent::WorkerStreamError {
-                            ts: d.now(), chunk_id: self.chunk.id,
-                            error: format!("Connection error: {}", err), retry: retry_count,
+                            ts: d.now(),
+                            chunk_id: self.chunk.id,
+                            error: format!("Connection error: {}", err),
+                            retry: retry_count,
                         });
                     }
-                    retry_count += 1;
-                    if retry_count > MAX_RETRIES {
-                        let _ = self.event_tx.send(WorkerEvent::WorkerFailed {
-                            chunk_id: self.chunk.id, error: format!("Connection error: {}", err),
-                        }).await;
+
+                    if !ConnectivityMonitor::is_online().await {
+                        let _ = self
+                            .event_tx
+                            .send(WorkerEvent::NetworkLost {
+                                chunk_id: self.chunk.id,
+                            })
+                            .await;
                         return;
                     }
-                    tokio::time::sleep(Duration::from_millis(500 * (1 << retry_count.min(4)))).await;
+
+                    retry_count += 1;
+                    if retry_count > MAX_RETRIES {
+                        let _ = self
+                            .event_tx
+                            .send(WorkerEvent::WorkerFailed {
+                                chunk_id: self.chunk.id,
+                                error: format!("Connection error: {}", err),
+                            })
+                            .await;
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(500 * (1 << retry_count.min(4))))
+                        .await;
                 }
             }
         }

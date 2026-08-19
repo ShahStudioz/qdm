@@ -9,7 +9,7 @@ pub struct ConflictPendingDownload {
     pub filename: String,
     pub save_to: String,
     pub max_connections: usize,
-    pub speed_limit: usize,
+    pub speed_limit: Option<u64>,
     pub mirror_urls: Vec<String>,
 }
 

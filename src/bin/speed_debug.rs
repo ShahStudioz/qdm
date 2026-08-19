@@ -249,6 +249,10 @@ async fn main() {
                 println!("\n  [FAILED] {}", error);
                 break;
             }
+            Some(TaskEvent::WaitingForNetwork { .. }) => {
+                println!("\n  [WAITING FOR NETWORK]");
+                break;
+            }
             None | Some(TaskEvent::StatePersistRequested { .. }) => {}
         }
     }

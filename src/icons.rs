@@ -47,6 +47,9 @@ pub const ICON_SERVER: char = '\u{f233}';        // fa-server
 pub const ICON_CHECK: char = '\u{f00c}';         // fa-check
 pub const ICON_SPINNER: char = '\u{f110}';       // fa-spinner
 pub const ICON_GLOBE: char = '\u{f0ac}';         // fa-globe
+pub const ICON_GAUGE: char = '\u{f624}';         // fa-gauge-high
+pub const ICON_WIFI: char = '\u{f1eb}';          // fa-wifi
+pub const ICON_WIFI_SLASH: char = '\u{e073}';    // fa-wifi-slash
 
 // File Type Icons
 pub const ICON_DISC: char = '\u{f51e}';          // fa-compact-disc (ISO)

@@ -193,3 +193,37 @@ pub fn transparent_text_input_style(_theme: &Theme, _status: text_input::Status)
         selection: colors::PRIMARY,
     }
 }
+
+// --- Pick List (Single-Select Dropdown) Styles ---
+
+pub fn pick_list_style(_theme: &Theme, status: iced::widget::pick_list::Status) -> iced::widget::pick_list::Style {
+    let border_color = match status {
+        iced::widget::pick_list::Status::Opened | iced::widget::pick_list::Status::Hovered => colors::PRIMARY,
+        _ => colors::BORDER,
+    };
+    iced::widget::pick_list::Style {
+        text_color: colors::TEXT_PRIMARY,
+        placeholder_color: colors::TEXT_MUTED,
+        handle_color: colors::TEXT_MUTED,
+        background: Background::Color(colors::SURFACE_HIGH),
+        border: Border {
+            color: border_color,
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+    }
+}
+
+pub fn pick_list_menu_style(_theme: &Theme) -> iced::overlay::menu::Style {
+    iced::overlay::menu::Style {
+        text_color: colors::TEXT_PRIMARY,
+        background: Background::Color(colors::SURFACE),
+        border: Border {
+            color: colors::BORDER,
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        selected_text_color: colors::BACKGROUND,
+        selected_background: Background::Color(colors::PRIMARY),
+    }
+}

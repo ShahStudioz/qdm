@@ -25,6 +25,7 @@ use tokio::sync::{mpsc, watch};
 use crate::models::download::{ChunkState, DownloadItem, DownloadState, FileType};
 use crate::services::downloads::diagnostics::{DiagEvent, DiagSender};
 use crate::services::downloads::integrity;
+use crate::services::downloads::throttler::Throttler;
 use crate::services::downloads::worker::{ChunkWorker, WorkerEvent};
 use crate::services::downloads::writer::PositionalWriter;
 
@@ -44,6 +45,11 @@ pub enum TaskEvent {
         id: usize,
         downloaded_bytes: u64,
         sha256: Option<String>,
+    },
+    WaitingForNetwork {
+        id: usize,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
     },
     Failed {
         id: usize,
@@ -139,6 +145,7 @@ pub struct DownloadTaskController {
     max_allowed_concurrency: usize,
     current_target_concurrency: usize,
     next_scale_up_allowed: Instant,
+    pub throttler: Option<Throttler>,
     /// Optional diagnostic side-channel. None in normal downloads, Some in speed_debug.
     pub diag: Option<DiagSender>,
 }
@@ -158,6 +165,8 @@ impl DownloadTaskController {
             1
         };
 
+        let throttler = item.speed_limit_bps.filter(|&bps| bps > 0).map(Throttler::new);
+
         Self {
             item,
             client,
@@ -167,6 +176,7 @@ impl DownloadTaskController {
             max_allowed_concurrency: max_concurrency,
             current_target_concurrency: initial_target,
             next_scale_up_allowed: Instant::now() + Duration::from_secs(4),
+            throttler,
             diag: None,
         }
     }
@@ -429,6 +439,26 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                             // Keep workers busy: dispatch uncompleted chunk or tail work-steal
                             self.spawn_available_work(&writer, &worker_tx);
                         }
+                        Some(WorkerEvent::NetworkLost { chunk_id }) => {
+                            self.active_workers.remove(&chunk_id);
+                            let total_downloaded = self.calculate_total_downloaded();
+                            self.item.downloaded_bytes = total_downloaded;
+                            self.item.state = DownloadState::WaitingForNetwork {
+                                downloaded_bytes: total_downloaded,
+                                total_bytes: self.item.total_bytes,
+                            };
+                            println!("[QDM Task {}] Network lost on worker {}. Pausing in WaitingForNetwork state...", self.item.id, chunk_id);
+                            let _ = writer.sync_data();
+                            let _ = self.task_event_tx.send(TaskEvent::WaitingForNetwork {
+                                id: self.item.id,
+                                downloaded_bytes: total_downloaded,
+                                total_bytes: self.item.total_bytes,
+                            }).await;
+                            let _ = self.task_event_tx.send(TaskEvent::StatePersistRequested {
+                                item: self.item.clone(),
+                            }).await;
+                            return;
+                        }
                         Some(WorkerEvent::RateLimited { chunk_id, retry_after: _ }) => {
                             // Smart Concurrency Reduction: Throttle concurrency down to ease server load
                             if self.current_target_concurrency > 1 {
@@ -547,7 +577,7 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                     writer.clone(),
                     worker_tx.clone(),
                     self.pause_rx.clone(),
-                );
+                ).with_throttler(self.throttler.clone());
                 if let Some(ref d) = self.diag {
                     worker = worker.with_diag(d.clone());
                 }
@@ -601,7 +631,7 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                             writer.clone(),
                             worker_tx.clone(),
                             self.pause_rx.clone(),
-                        );
+                        ).with_throttler(self.throttler.clone());
                         if let Some(ref d) = self.diag {
                             worker = worker.with_diag(d.clone());
                         }

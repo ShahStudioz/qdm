@@ -170,6 +170,24 @@ impl DownloadEngine {
                         let _ = ui_event_tx.send(EngineUiEvent::DownloadCompleted { id, sha256 });
                         break;
                     }
+                    TaskEvent::WaitingForNetwork {
+                        id,
+                        downloaded_bytes,
+                        total_bytes,
+                    } => {
+                        {
+                            let mut tasks = active_tasks.lock().await;
+                            tasks.remove(&id);
+                        }
+                        let _ = ui_event_tx.send(EngineUiEvent::StateChanged {
+                            id,
+                            state: DownloadState::WaitingForNetwork {
+                                downloaded_bytes,
+                                total_bytes,
+                            },
+                        });
+                        break;
+                    }
                     TaskEvent::Failed {
                         id,
                         error,

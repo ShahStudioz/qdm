@@ -160,12 +160,14 @@ mod tests {
         assert_eq!(settings.simultaneous_downloads, parsed.simultaneous_downloads);
         assert_eq!(settings.max_connections, parsed.max_connections);
         assert_eq!(settings.max_threads, parsed.max_threads);
-        assert_eq!(settings.retry_count, parsed.retry_count);
-        assert_eq!(settings.timeout_seconds, parsed.timeout_seconds);
-        assert_eq!(settings.user_agent, parsed.user_agent);
+        assert_eq!(settings.auto_retry_downloads, parsed.auto_retry_downloads);
+        assert_eq!(settings.max_auto_retries, parsed.max_auto_retries);
+        assert_eq!(settings.speed_limit_value, parsed.speed_limit_value);
+        assert_eq!(settings.speed_limit_unit, parsed.speed_limit_unit);
         assert_eq!(settings.show_notifications, parsed.show_notifications);
         assert_eq!(settings.file_conflict_action, parsed.file_conflict_action);
         assert_eq!(settings.delete_action, parsed.delete_action);
+        assert_eq!(settings.auto_check_updates, parsed.auto_check_updates);
     }
 
     #[test]

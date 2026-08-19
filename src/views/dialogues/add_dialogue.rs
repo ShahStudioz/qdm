@@ -3,8 +3,10 @@ use crate::icons::{self, icon};
 use crate::models::download::format_bytes;
 use crate::services::downloads::download::{DownloadFileMetaData, DownloadService};
 use crate::theme::{colors, styles};
-use iced::widget::{button, column, container, row, text, text_input, Space};
+use iced::widget::{button, column, container, pick_list, row, text, text_input, Space};
 use iced::{Alignment, Element, Length, Task};
+
+use crate::views::settings::settings::SpeedUnit;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AddDialogStep {
@@ -23,6 +25,7 @@ pub struct AddDialogModel {
     pub is_advanced_expanded: bool,
     pub max_connections: String,
     pub speed_limit: String,
+    pub speed_unit: SpeedUnit,
     pub mirror_urls_text: String,
     pub downloader: DownloadService,
     pub has_error: bool,
@@ -41,6 +44,7 @@ impl Default for AddDialogModel {
             is_advanced_expanded: false,
             max_connections: "8".to_string(),
             speed_limit: String::new(),
+            speed_unit: SpeedUnit::KBps,
             mirror_urls_text: String::new(),
             downloader: DownloadService::default(),
             has_error: false,
@@ -98,7 +102,8 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
             ..Default::default()
         });
 
-    let error_view: Element<AddDialogueModalMessage> = if state.has_error && !state.error.is_empty() {
+    let error_view: Element<AddDialogueModalMessage> = if state.has_error && !state.error.is_empty()
+    {
         let err_row = row![
             icon(icons::ICON_WARN).size(14).color(colors::ERROR),
             text(&state.error).color(colors::ERROR).size(12),
@@ -106,17 +111,25 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
         .spacing(8)
         .align_y(Alignment::Center);
 
-        let add_anyway_btn = button(
-            row![
-                icon(icons::ICON_PLUS).size(12).color(colors::ERROR),
-                text("Add Anyway (Fetch in Background)").size(11).font(styles::BOLD_FONT).color(colors::ERROR),
-            ]
-            .spacing(4)
-            .align_y(Alignment::Center),
-        )
-        .padding([4, 8])
-        .style(styles::ghost_button_style)
-        .on_press(AddDialogueModalMessage::QuickAddDownload);
+        let add_anyway_btn: Element<AddDialogueModalMessage> = if !state.url.is_empty() {
+            button(
+                row![
+                    icon(icons::ICON_PLUS).size(12).color(colors::ERROR),
+                    text("Add Anyway (Fetch in Background)")
+                        .size(11)
+                        .font(styles::BOLD_FONT)
+                        .color(colors::ERROR),
+                ]
+                .spacing(4)
+                .align_y(Alignment::Center),
+            )
+            .padding([4, 8])
+            .style(styles::ghost_button_style)
+            .on_press(AddDialogueModalMessage::QuickAddDownload)
+            .into()
+        } else {
+            Space::with_height(0).into()
+        };
 
         container(
             column![
@@ -212,10 +225,7 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                         "Resume: Not supported"
                     };
 
-                    let type_str = meta
-                        .content_type
-                        .as_deref()
-                        .unwrap_or("Unknown type");
+                    let type_str = meta.content_type.as_deref().unwrap_or("Unknown type");
 
                     container(
                         row![
@@ -224,13 +234,11 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                                 .font(styles::BOLD_FONT)
                                 .color(colors::TEXT_PRIMARY),
                             text("|").size(12).color(colors::TEXT_MUTED),
-                            text(resume_str)
-                                .size(12)
-                                .color(if meta.supports_resume {
-                                    colors::SUCCESS
-                                } else {
-                                    colors::TEXT_MUTED
-                                }),
+                            text(resume_str).size(12).color(if meta.supports_resume {
+                                colors::SUCCESS
+                            } else {
+                                colors::TEXT_MUTED
+                            }),
                             text("|").size(12).color(colors::TEXT_MUTED),
                             text(type_str).size(12).color(colors::TEXT_MUTED),
                         ]
@@ -286,43 +294,49 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
             });
             let filename_group = column![filename_label, filename_box].spacing(6);
 
-            let file_exists = crate::core::utils::paths::file_exists_or_downloading(&state.save_to, &state.filename);
-            let collision_warning: Element<AddDialogueModalMessage> = if file_exists && !state.filename.trim().is_empty() {
-                container(
-                    row![
-                        icon(icons::ICON_WARN).size(14).color(colors::WARNING),
-                        text("File with this name already exists in destination.")
-                            .size(12)
-                            .color(colors::WARNING)
-                            .width(Length::Fill),
-                        button(
-                            text("Auto-Rename")
-                                .size(11)
-                                .font(styles::BOLD_FONT)
-                                .color(colors::TEXT_PRIMARY)
-                        )
-                        .padding([4, 10])
-                        .style(styles::ghost_button_style)
-                        .on_press(AddDialogueModalMessage::AutoRenameFilename),
-                    ]
-                    .spacing(10)
-                    .align_y(Alignment::Center),
-                )
-                .padding([8, 12])
-                .width(Length::Fill)
-                .style(|_| container::Style {
-                    background: Some(iced::Background::Color(iced::Color::from_rgba(0.95, 0.70, 0.20, 0.12))),
-                    border: iced::Border {
-                        color: colors::WARNING,
-                        width: 1.0,
-                        radius: 6.0.into(),
-                    },
-                    ..Default::default()
-                })
-                .into()
-            } else {
-                Space::with_height(0).into()
-            };
+            let file_exists = crate::core::utils::paths::file_exists_or_downloading(
+                &state.save_to,
+                &state.filename,
+            );
+            let collision_warning: Element<AddDialogueModalMessage> =
+                if file_exists && !state.filename.trim().is_empty() {
+                    container(
+                        row![
+                            icon(icons::ICON_WARN).size(14).color(colors::WARNING),
+                            text("File with this name already exists in destination.")
+                                .size(12)
+                                .color(colors::WARNING)
+                                .width(Length::Fill),
+                            button(
+                                text("Auto-Rename")
+                                    .size(11)
+                                    .font(styles::BOLD_FONT)
+                                    .color(colors::TEXT_PRIMARY)
+                            )
+                            .padding([4, 10])
+                            .style(styles::ghost_button_style)
+                            .on_press(AddDialogueModalMessage::AutoRenameFilename),
+                        ]
+                        .spacing(10)
+                        .align_y(Alignment::Center),
+                    )
+                    .padding([8, 12])
+                    .width(Length::Fill)
+                    .style(|_| container::Style {
+                        background: Some(iced::Background::Color(iced::Color::from_rgba(
+                            0.95, 0.70, 0.20, 0.12,
+                        ))),
+                        border: iced::Border {
+                            color: colors::WARNING,
+                            width: 1.0,
+                            radius: 6.0.into(),
+                        },
+                        ..Default::default()
+                    })
+                    .into()
+                } else {
+                    Space::with_height(0).into()
+                };
 
             let save_to_label = form_label("SAVE TO");
             let save_to_input = text_input(&paths::get_default_download_dir(), &state.save_to)
@@ -384,13 +398,28 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                     .width(Length::Fill)
                     .style(styles::dark_input_style);
 
-                let speed_limit_col = column![speed_limit_label, speed_limit_input]
+                let speed_unit_dropdown = pick_list(
+                    SpeedUnit::ALL,
+                    Some(state.speed_unit),
+                    AddDialogueModalMessage::AddSpeedUnitChanged,
+                )
+                .style(styles::pick_list_style)
+                .menu_style(styles::pick_list_menu_style)
+                .padding([10, 12])
+                .width(85);
+
+                let speed_control_row = row![speed_limit_input, speed_unit_dropdown]
+                    .spacing(6)
+                    .align_y(Alignment::Center);
+
+                let speed_limit_col = column![speed_limit_label, speed_control_row]
                     .spacing(6)
                     .width(Length::FillPortion(1));
 
                 let conn_speed_row = row![max_conn_col, speed_limit_col].spacing(16);
 
-                let mirrors_label = form_label("OPTIONAL MIRROR LINKS (COMMA OR NEWLINE SEPARATED)");
+                let mirrors_label =
+                    form_label("OPTIONAL MIRROR LINKS (COMMA OR NEWLINE SEPARATED)");
                 let mirrors_input = text_input(
                     "https://mirror1.example.com/file.zip, https://mirror2...",
                     &state.mirror_urls_text,
@@ -400,7 +429,14 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                 .width(Length::Fill)
                 .style(styles::dark_input_style);
 
-                column![conn_speed_row, Space::with_height(6), mirrors_label, mirrors_input].spacing(6).into()
+                column![
+                    conn_speed_row,
+                    Space::with_height(6),
+                    mirrors_label,
+                    mirrors_input
+                ]
+                .spacing(6)
+                .into()
             } else {
                 Space::with_height(0).into()
             };
@@ -453,7 +489,10 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
             let inspect_btn = button(
                 row![
                     icon(icons::ICON_SEARCH).size(13).color(colors::BACKGROUND),
-                    text("Inspect & Configure").size(14).font(styles::BOLD_FONT).color(colors::BACKGROUND),
+                    text("Inspect & Configure")
+                        .size(14)
+                        .font(styles::BOLD_FONT)
+                        .color(colors::BACKGROUND),
                 ]
                 .spacing(6)
                 .align_y(Alignment::Center),
@@ -462,17 +501,22 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
             .style(styles::primary_button_style)
             .on_press(AddDialogueModalMessage::FetchFileInfoPressed);
 
-            row![Space::with_width(Length::Fill), cancel_btn, quick_add_btn, inspect_btn]
-                .spacing(12)
-                .align_y(Alignment::Center)
-                .into()
+            row![
+                Space::with_width(Length::Fill),
+                cancel_btn,
+                quick_add_btn,
+                inspect_btn
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center)
+            .into()
         }
 
         AddDialogStep::FetchingInfo => {
             let add_anyway_btn = button(
-                row![
-                    text("Add Without Waiting").size(13).color(colors::TEXT_PRIMARY),
-                ]
+                row![text("Add Without Waiting")
+                    .size(13)
+                    .color(colors::TEXT_PRIMARY),]
                 .align_y(Alignment::Center),
             )
             .padding([10, 16])
@@ -490,16 +534,23 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
             .padding([10, 16])
             .style(styles::ghost_button_style);
 
-            row![Space::with_width(Length::Fill), cancel_btn, add_anyway_btn, fetching_badge]
-                .spacing(12)
-                .align_y(Alignment::Center)
-                .into()
+            row![
+                Space::with_width(Length::Fill),
+                cancel_btn,
+                add_anyway_btn,
+                fetching_badge
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center)
+            .into()
         }
 
         AddDialogStep::DownloadDetails => {
             let start_btn = button(
                 row![
-                    icon(icons::ICON_DOWNLOADING).size(14).color(colors::BACKGROUND),
+                    icon(icons::ICON_DOWNLOADING)
+                        .size(14)
+                        .color(colors::BACKGROUND),
                     text("Start Download")
                         .size(14)
                         .font(styles::BOLD_FONT)
@@ -570,6 +621,7 @@ pub enum AddDialogueModalMessage {
     ToggleAdvancedOptions,
     AddMaxConnectionsChanged(String),
     AddSpeedLimitChanged(String),
+    AddSpeedUnitChanged(SpeedUnit),
     AddMirrorUrlsChanged(String),
     QuickAddDownload,
     SubmitNewDownload,
@@ -622,7 +674,8 @@ pub fn update(
         }
         AddDialogueModalMessage::FileMetaDataFetched(meta_res) => match meta_res {
             Ok(data) => {
-                let extracted_name = extract_filename(&state.url, data.content_disposition.as_deref());
+                let extracted_name =
+                    extract_filename(&state.url, data.content_disposition.as_deref());
                 state.filename = extracted_name;
                 state.download_file_metadata = Some(data);
                 state.step = AddDialogStep::DownloadDetails;
@@ -670,7 +723,10 @@ pub fn update(
             state.max_connections = val;
         }
         AddDialogueModalMessage::AddSpeedLimitChanged(val) => {
-            state.speed_limit = val;
+            state.speed_limit = val.chars().filter(|c| c.is_ascii_digit()).collect();
+        }
+        AddDialogueModalMessage::AddSpeedUnitChanged(val) => {
+            state.speed_unit = val;
         }
         AddDialogueModalMessage::AddMirrorUrlsChanged(val) => {
             state.mirror_urls_text = val;

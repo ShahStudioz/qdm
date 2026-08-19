@@ -56,6 +56,10 @@ pub enum DownloadState {
         downloaded_bytes: u64,
         total_bytes: Option<u64>,
     },
+    WaitingForNetwork {
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
+    },
     Failed {
         downloaded_bytes: u64,
         total_bytes: Option<u64>,
@@ -211,9 +215,24 @@ impl DownloadItem {
         match &self.state {
             DownloadState::Completed => 100.0,
             DownloadState::FetchingMetadata | DownloadState::Queued => 0.0,
-            DownloadState::Downloading { downloaded_bytes, total_bytes, .. }
-            | DownloadState::Paused { downloaded_bytes, total_bytes }
-            | DownloadState::Failed { downloaded_bytes, total_bytes, .. } => {
+            DownloadState::Downloading {
+                downloaded_bytes,
+                total_bytes,
+                ..
+            }
+            | DownloadState::Paused {
+                downloaded_bytes,
+                total_bytes,
+            }
+            | DownloadState::WaitingForNetwork {
+                downloaded_bytes,
+                total_bytes,
+            }
+            | DownloadState::Failed {
+                downloaded_bytes,
+                total_bytes,
+                ..
+            } => {
                 if let Some(total) = total_bytes {
                     if *total > 0 {
                         ((*downloaded_bytes as f64 / *total as f64) * 100.0) as f32

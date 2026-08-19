@@ -1,16 +1,15 @@
-use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input, Space};
+use crate::theme::{colors, styles};
+use crate::views::settings::tabs;
+use iced::widget::{button, column, container, row, scrollable, text, Space};
 use iced::{Alignment, Element, Length};
 use serde::{Deserialize, Serialize};
-use crate::icons::{self, icon};
-use crate::theme::{colors, styles};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum SettingsTab {
     #[default]
     General,
     Downloads,
-    Network,
-    Appearance,
+    Updates,
 }
 
 fn default_true() -> bool {
@@ -29,20 +28,42 @@ fn default_max_threads() -> usize {
     4
 }
 
-fn default_retry_count() -> u32 {
+fn default_max_retries() -> u32 {
     3
 }
 
-fn default_timeout_seconds() -> u64 {
-    30
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum SpeedUnit {
+    #[default]
+    KBps,
+    MBps,
+    GBps,
 }
 
-fn default_user_agent() -> String {
-    "QDM/0.1.0 (Quick Download Manager)".to_string()
+impl SpeedUnit {
+    pub const ALL: &'static [SpeedUnit] = &[SpeedUnit::KBps, SpeedUnit::MBps, SpeedUnit::GBps];
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SpeedUnit::KBps => "KB/s",
+            SpeedUnit::MBps => "MB/s",
+            SpeedUnit::GBps => "GB/s",
+        }
+    }
+
+    pub fn to_bps(&self, val: u64) -> u64 {
+        match self {
+            SpeedUnit::KBps => val * 1024,
+            SpeedUnit::MBps => val * 1024 * 1024,
+            SpeedUnit::GBps => val * 1024 * 1024 * 1024,
+        }
+    }
 }
 
-fn default_notification_sound() -> String {
-    "Default".to_string()
+impl std::fmt::Display for SpeedUnit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,6 +83,7 @@ pub struct SettingsModel {
     #[serde(default)]
     pub active_tab: SettingsTab,
 
+    // General Tab
     #[serde(default)]
     pub launch_at_startup: bool,
     #[serde(skip)]
@@ -72,6 +94,12 @@ pub struct SettingsModel {
     #[serde(skip)]
     pub minimize_to_tray_anim: f32,
 
+    #[serde(default = "default_true")]
+    pub show_notifications: bool,
+    #[serde(skip)]
+    pub show_notifications_anim: f32,
+
+    // Downloads Tab
     #[serde(default = "crate::core::utils::paths::get_default_download_dir")]
     pub download_folder: String,
 
@@ -90,29 +118,21 @@ pub struct SettingsModel {
     #[serde(default = "default_max_threads")]
     pub max_threads: usize,
 
-    #[serde(default)]
-    pub speed_limit_kbps: usize,
-
-    #[serde(default = "default_retry_count")]
-    pub retry_count: u32,
-
-    #[serde(default = "default_timeout_seconds")]
-    pub timeout_seconds: u64,
-
-    #[serde(default = "default_user_agent")]
-    pub user_agent: String,
-
     #[serde(default = "default_true")]
-    pub auto_start_downloads: bool,
-
-    #[serde(default = "default_true")]
-    pub show_notifications: bool,
+    pub auto_retry_downloads: bool,
     #[serde(skip)]
-    pub show_notifications_anim: f32,
+    pub auto_retry_downloads_anim: f32,
 
-    #[serde(default = "default_notification_sound")]
-    pub notification_sound: String,
+    #[serde(default = "default_max_retries")]
+    pub max_auto_retries: u32,
 
+    #[serde(default)]
+    pub speed_limit_value: String,
+
+    #[serde(default)]
+    pub speed_limit_unit: SpeedUnit,
+
+    // Updates Tab
     #[serde(default = "default_true")]
     pub auto_check_updates: bool,
     #[serde(skip)]
@@ -129,22 +149,20 @@ impl Default for SettingsModel {
             minimize_to_tray: true,
             minimize_to_tray_anim: 1.0,
 
+            show_notifications: true,
+            show_notifications_anim: 1.0,
+
             download_folder: crate::core::utils::paths::get_default_download_dir(),
             file_conflict_action: None,
             delete_action: None,
             simultaneous_downloads: 3,
             max_connections: 8,
             max_threads: 4,
-            speed_limit_kbps: 0,
-            retry_count: 3,
-            timeout_seconds: 30,
-            user_agent: "QDM/0.1.0 (Quick Download Manager)".to_string(),
-            auto_start_downloads: true,
-
-            show_notifications: true,
-            show_notifications_anim: 1.0,
-
-            notification_sound: "Default".to_string(),
+            auto_retry_downloads: true,
+            auto_retry_downloads_anim: 1.0,
+            max_auto_retries: 3,
+            speed_limit_value: String::new(),
+            speed_limit_unit: SpeedUnit::KBps,
 
             auto_check_updates: true,
             auto_check_updates_anim: 1.0,
@@ -153,10 +171,24 @@ impl Default for SettingsModel {
 }
 
 impl SettingsModel {
+    pub fn global_speed_limit_bps(&self) -> Option<u64> {
+        let trimmed = self.speed_limit_value.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        if let Ok(num) = trimmed.parse::<u64>() {
+            if num > 0 {
+                return Some(self.speed_limit_unit.to_bps(num));
+            }
+        }
+        None
+    }
+
     pub fn sync_animations(&mut self) {
         self.launch_at_startup_anim = if self.launch_at_startup { 1.0 } else { 0.0 };
         self.minimize_to_tray_anim = if self.minimize_to_tray { 1.0 } else { 0.0 };
         self.show_notifications_anim = if self.show_notifications { 1.0 } else { 0.0 };
+        self.auto_retry_downloads_anim = if self.auto_retry_downloads { 1.0 } else { 0.0 };
         self.auto_check_updates_anim = if self.auto_check_updates { 1.0 } else { 0.0 };
     }
 
@@ -164,11 +196,13 @@ impl SettingsModel {
         let target_startup = if self.launch_at_startup { 1.0 } else { 0.0 };
         let target_tray = if self.minimize_to_tray { 1.0 } else { 0.0 };
         let target_notify = if self.show_notifications { 1.0 } else { 0.0 };
+        let target_retry = if self.auto_retry_downloads { 1.0 } else { 0.0 };
         let target_updates = if self.auto_check_updates { 1.0 } else { 0.0 };
 
         (self.launch_at_startup_anim - target_startup).abs() > 0.005
             || (self.minimize_to_tray_anim - target_tray).abs() > 0.005
             || (self.show_notifications_anim - target_notify).abs() > 0.005
+            || (self.auto_retry_downloads_anim - target_retry).abs() > 0.005
             || (self.auto_check_updates_anim - target_updates).abs() > 0.005
     }
 
@@ -176,11 +210,13 @@ impl SettingsModel {
         let target_startup = if self.launch_at_startup { 1.0 } else { 0.0 };
         let target_tray = if self.minimize_to_tray { 1.0 } else { 0.0 };
         let target_notify = if self.show_notifications { 1.0 } else { 0.0 };
+        let target_retry = if self.auto_retry_downloads { 1.0 } else { 0.0 };
         let target_updates = if self.auto_check_updates { 1.0 } else { 0.0 };
 
         self.launch_at_startup_anim += (target_startup - self.launch_at_startup_anim) * 0.35;
         self.minimize_to_tray_anim += (target_tray - self.minimize_to_tray_anim) * 0.35;
         self.show_notifications_anim += (target_notify - self.show_notifications_anim) * 0.35;
+        self.auto_retry_downloads_anim += (target_retry - self.auto_retry_downloads_anim) * 0.35;
         self.auto_check_updates_anim += (target_updates - self.auto_check_updates_anim) * 0.35;
 
         if (self.launch_at_startup_anim - target_startup).abs() < 0.005 {
@@ -192,6 +228,9 @@ impl SettingsModel {
         if (self.show_notifications_anim - target_notify).abs() < 0.005 {
             self.show_notifications_anim = target_notify;
         }
+        if (self.auto_retry_downloads_anim - target_retry).abs() < 0.005 {
+            self.auto_retry_downloads_anim = target_retry;
+        }
         if (self.auto_check_updates_anim - target_updates).abs() < 0.005 {
             self.auto_check_updates_anim = target_updates;
         }
@@ -201,31 +240,52 @@ impl SettingsModel {
 #[derive(Debug, Clone)]
 pub enum SettingsMessage {
     TabSelected(SettingsTab),
+
+    // General Tab
     ToggleStartup(bool),
     ToggleTray(bool),
+    ToggleNotifications(bool),
+
+    // Downloads Tab
     FolderChanged(String),
     BrowseFolderPressed,
     BrowseFolderResult(Option<String>),
     FileConflictActionChanged(String),
     DeleteActionChanged(String),
-    StepperDecrement,
-    StepperIncrement,
-    ToggleNotifications(bool),
-    SoundChanged(String),
+    SimultaneousDownloadsDec,
+    SimultaneousDownloadsInc,
+    MaxConnectionsDec,
+    MaxConnectionsInc,
+    MaxThreadsDec,
+    MaxThreadsInc,
+    ToggleAutoRetry(bool),
+    MaxAutoRetriesDec,
+    MaxAutoRetriesInc,
+    SpeedLimitValueChanged(String),
+    SpeedLimitUnitChanged(SpeedUnit),
+
+    // Updates Tab
     ToggleUpdates(bool),
     CheckUpdatesPressed,
+
+    // Global
     ResetDefaultsPressed,
-    SaveChangesPressed,
 }
 
 pub fn update(model: &mut SettingsModel, message: SettingsMessage) {
     match message {
         SettingsMessage::TabSelected(tab) => model.active_tab = tab,
-        SettingsMessage::ToggleStartup(val) => model.launch_at_startup = val,
+
+        SettingsMessage::ToggleStartup(val) => {
+            model.launch_at_startup = val;
+            let _ = crate::core::utils::platform::set_launch_at_startup(val);
+        }
         SettingsMessage::ToggleTray(val) => model.minimize_to_tray = val,
+        SettingsMessage::ToggleNotifications(val) => model.show_notifications = val,
+
         SettingsMessage::FolderChanged(folder) => model.download_folder = folder,
         SettingsMessage::BrowseFolderPressed => {
-            println!("[QDM] Browse download folder pressed");
+            println!("[QDM] Browse download folder requested");
         }
         SettingsMessage::BrowseFolderResult(res) => {
             if let Some(folder) = res {
@@ -246,46 +306,77 @@ pub fn update(model: &mut SettingsModel, message: SettingsMessage) {
                 _ => None,
             };
         }
-        SettingsMessage::StepperDecrement => {
+        SettingsMessage::SimultaneousDownloadsDec => {
             if model.simultaneous_downloads > 1 {
                 model.simultaneous_downloads -= 1;
             }
         }
-        SettingsMessage::StepperIncrement => {
+        SettingsMessage::SimultaneousDownloadsInc => {
             if model.simultaneous_downloads < 16 {
                 model.simultaneous_downloads += 1;
             }
         }
-        SettingsMessage::ToggleNotifications(val) => model.show_notifications = val,
-        SettingsMessage::SoundChanged(sound) => model.notification_sound = sound,
+        SettingsMessage::MaxConnectionsDec => {
+            if model.max_connections > 1 {
+                model.max_connections -= 1;
+            }
+        }
+        SettingsMessage::MaxConnectionsInc => {
+            if model.max_connections < 32 {
+                model.max_connections += 1;
+            }
+        }
+        SettingsMessage::MaxThreadsDec => {
+            if model.max_threads > 1 {
+                model.max_threads -= 1;
+            }
+        }
+        SettingsMessage::MaxThreadsInc => {
+            if model.max_threads < 16 {
+                model.max_threads += 1;
+            }
+        }
+        SettingsMessage::ToggleAutoRetry(val) => model.auto_retry_downloads = val,
+        SettingsMessage::MaxAutoRetriesDec => {
+            if model.max_auto_retries > 1 {
+                model.max_auto_retries -= 1;
+            }
+        }
+        SettingsMessage::MaxAutoRetriesInc => {
+            if model.max_auto_retries < 10 {
+                model.max_auto_retries += 1;
+            }
+        }
+        SettingsMessage::SpeedLimitValueChanged(val) => {
+            // Keep only digits in speed limit input
+            model.speed_limit_value = val.chars().filter(|c| c.is_ascii_digit()).collect();
+        }
+        SettingsMessage::SpeedLimitUnitChanged(unit) => model.speed_limit_unit = unit,
+
         SettingsMessage::ToggleUpdates(val) => model.auto_check_updates = val,
         SettingsMessage::CheckUpdatesPressed => {
             println!("[QDM] Checking for updates...");
         }
         SettingsMessage::ResetDefaultsPressed => {
             *model = SettingsModel::default();
-            let _ = crate::services::storage::json_store::save_settings(model);
-        }
-        SettingsMessage::SaveChangesPressed => {
-            let _ = crate::services::storage::json_store::save_settings(model);
-            println!("[QDM] Settings saved: {:?}", model.download_folder);
+            let _ = crate::core::utils::platform::set_launch_at_startup(false);
         }
     }
+
+    // Auto-save changes immediately to JSON storage
+    let _ = crate::services::storage::json_store::save_settings(model);
 }
 
 pub fn settings_view(model: &SettingsModel) -> Element<'_, SettingsMessage> {
     let tabs_row = row![
         tab_item("General", SettingsTab::General, model.active_tab),
         tab_item("Downloads", SettingsTab::Downloads, model.active_tab),
-        tab_item("Network", SettingsTab::Network, model.active_tab),
-        tab_item("Appearance", SettingsTab::Appearance, model.active_tab),
+        tab_item("Updates", SettingsTab::Updates, model.active_tab),
     ]
     .spacing(24)
     .align_y(Alignment::Center);
 
-    let tab_bar = container(tabs_row)
-        .padding([12, 24])
-        .width(Length::Fill);
+    let tab_bar = container(tabs_row).padding([12, 24]).width(Length::Fill);
 
     let tab_divider = container(Space::with_height(1))
         .width(Length::Fill)
@@ -295,205 +386,11 @@ pub fn settings_view(model: &SettingsModel) -> Element<'_, SettingsMessage> {
             ..Default::default()
         });
 
-    let item_startup = setting_row(
-        "Launch at startup",
-        "Automatically start QDM when you log in",
-        custom_switch(model.launch_at_startup, model.launch_at_startup_anim, SettingsMessage::ToggleStartup),
-    );
-
-    let item_tray = setting_row(
-        "Minimize to system tray",
-        "Keep running in the background when closed",
-        custom_switch(model.minimize_to_tray, model.minimize_to_tray_anim, SettingsMessage::ToggleTray),
-    );
-
-    let folder_icon = icon(icons::ICON_FOLDER).size(14).color(colors::TEXT_MUTED);
-    let folder_input = text_input("", &model.download_folder)
-        .on_input(SettingsMessage::FolderChanged)
-        .padding([6, 8])
-        .width(260)
-        .style(styles::transparent_text_input_style);
-
-    let folder_box = container(
-        row![folder_icon, folder_input]
-            .spacing(6)
-            .align_y(Alignment::Center)
-    )
-    .padding([0, 10])
-    .style(|_| container::Style {
-        background: Some(iced::Background::Color(colors::SURFACE_HIGH)),
-        border: iced::Border { color: colors::BORDER, width: 1.0, radius: 6.0.into() },
-        ..Default::default()
-    });
-
-    let browse_btn = button(text("Browse").size(13).color(colors::TEXT_PRIMARY))
-        .padding([8, 16])
-        .style(styles::ghost_button_style)
-        .on_press(SettingsMessage::BrowseFolderPressed);
-
-    let folder_control = row![folder_box, browse_btn].spacing(8).align_y(Alignment::Center);
-
-    let item_folder = setting_row(
-        "Default download folder",
-        "Where to save files",
-        folder_control.into(),
-    );
-
-    let conflict_options = vec![
-        "Ask every time".to_string(),
-        "Auto-rename file".to_string(),
-        "Overwrite existing file".to_string(),
-    ];
-    let selected_conflict = match model.file_conflict_action {
-        Some(FileConflictAction::AutoRename) => "Auto-rename file".to_string(),
-        Some(FileConflictAction::Overwrite) => "Overwrite existing file".to_string(),
-        None => "Ask every time".to_string(),
+    let tab_content: Element<SettingsMessage> = match model.active_tab {
+        SettingsTab::General => tabs::general::view(model),
+        SettingsTab::Downloads => tabs::downloads::view(model),
+        SettingsTab::Updates => tabs::updates::view(model),
     };
-    let conflict_dropdown = pick_list(
-        conflict_options,
-        Some(selected_conflict),
-        SettingsMessage::FileConflictActionChanged,
-    )
-    .padding([8, 12])
-    .width(240);
-
-    let item_conflict = setting_row(
-        "When file already exists",
-        "Action to take if a file with the same name exists",
-        conflict_dropdown.into(),
-    );
-
-    let delete_options = vec![
-        "Ask every time".to_string(),
-        "Remove from list only".to_string(),
-        "Delete file from disk".to_string(),
-    ];
-    let selected_delete = match model.delete_action {
-        Some(DeleteAction::RemoveFromList) => "Remove from list only".to_string(),
-        Some(DeleteAction::DeleteFromDisk) => "Delete file from disk".to_string(),
-        None => "Ask every time".to_string(),
-    };
-    let delete_dropdown = pick_list(
-        delete_options,
-        Some(selected_delete),
-        SettingsMessage::DeleteActionChanged,
-    )
-    .padding([8, 12])
-    .width(240);
-
-    let item_delete = setting_row(
-        "When deleting a download",
-        "Action to take when delete button is clicked",
-        delete_dropdown.into(),
-    );
-
-    let minus_btn = button(text("-").size(14).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY))
-        .padding([4, 12])
-        .style(styles::ghost_button_style)
-        .on_press(SettingsMessage::StepperDecrement);
-
-    let count_text = text(model.simultaneous_downloads.to_string())
-        .size(13)
-        .font(styles::BOLD_FONT)
-        .color(colors::TEXT_PRIMARY);
-
-    let count_box = container(count_text)
-        .width(36)
-        .align_x(Alignment::Center)
-        .align_y(Alignment::Center);
-
-    let plus_btn = button(text("+").size(14).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY))
-        .padding([4, 12])
-        .style(styles::ghost_button_style)
-        .on_press(SettingsMessage::StepperIncrement);
-
-    let stepper_control = container(
-        row![minus_btn, count_box, plus_btn]
-            .spacing(4)
-            .align_y(Alignment::Center)
-    )
-    .padding([2, 4])
-    .style(|_| container::Style {
-        background: Some(iced::Background::Color(colors::SURFACE_HIGH)),
-        border: iced::Border { color: colors::BORDER, width: 1.0, radius: 6.0.into() },
-        ..Default::default()
-    });
-
-    let item_stepper = setting_row(
-        "Simultaneous downloads",
-        "Maximum active downloads at once",
-        stepper_control.into(),
-    );
-
-    let item_notifications = setting_row(
-        "Show notifications",
-        "Alerts for completed or failed downloads",
-        custom_switch(model.show_notifications, model.show_notifications_anim, SettingsMessage::ToggleNotifications),
-    );
-
-    let sounds = vec!["Default".to_string(), "Chime".to_string(), "Mute".to_string()];
-    let sound_dropdown = pick_list(
-        sounds,
-        Some(model.notification_sound.clone()),
-        SettingsMessage::SoundChanged,
-    )
-    .padding([8, 12])
-    .width(240);
-
-    let item_sound = setting_row(
-        "Notification sound",
-        "",
-        sound_dropdown.into(),
-    );
-
-    let section_divider = container(Space::with_height(1))
-        .width(Length::Fill)
-        .height(1)
-        .style(|_| container::Style {
-            background: Some(iced::Background::Color(colors::BORDER)),
-            ..Default::default()
-        });
-
-    let updates_header = text("UPDATES")
-        .size(11)
-        .font(styles::BOLD_FONT)
-        .color(colors::TEXT_MUTED);
-
-    let item_updates_toggle = setting_row(
-        "Check for updates automatically",
-        "",
-        custom_switch(model.auto_check_updates, model.auto_check_updates_anim, SettingsMessage::ToggleUpdates),
-    );
-
-    let check_updates_btn = button(text("Check for Updates").size(13).color(colors::TEXT_PRIMARY))
-        .padding([8, 16])
-        .style(styles::ghost_button_style)
-        .on_press(SettingsMessage::CheckUpdatesPressed);
-
-    let item_version = setting_row(
-        "Current version",
-        "v1.0.0",
-        check_updates_btn.into(),
-    );
-
-    let form_content = column![
-        item_startup,
-        item_tray,
-        item_folder,
-        item_conflict,
-        item_delete,
-        item_stepper,
-        item_notifications,
-        item_sound,
-        Space::with_height(12),
-        section_divider,
-        Space::with_height(12),
-        updates_header,
-        item_updates_toggle,
-        item_version,
-    ]
-    .spacing(16)
-    .padding([20, 24]);
 
     let footer_divider = container(Space::with_height(1))
         .width(Length::Fill)
@@ -504,32 +401,31 @@ pub fn settings_view(model: &SettingsModel) -> Element<'_, SettingsMessage> {
         });
 
     let reset_btn = button(text("Reset to Defaults").size(13).color(colors::TEXT_MUTED))
-        .style(styles::icon_button_style)
+        .padding([8, 14])
+        .style(styles::ghost_button_style)
         .on_press(SettingsMessage::ResetDefaultsPressed);
-
-    let save_btn = button(text("Save Changes").size(14).font(styles::BOLD_FONT).color(colors::BACKGROUND))
-        .padding([10, 20])
-        .style(styles::primary_button_style)
-        .on_press(SettingsMessage::SaveChangesPressed);
 
     let footer_row = row![
         reset_btn,
         Space::with_width(Length::Fill),
-        save_btn,
+        text("Settings are saved automatically")
+            .size(12)
+            .color(colors::TEXT_MUTED),
     ]
-    .padding([16, 24])
+    .padding([14, 24])
     .align_y(Alignment::Center);
 
     let card_content = column![
         tab_bar,
         tab_divider,
-        scrollable(form_content).height(Length::Fill),
+        scrollable(tab_content).height(Length::Fill),
         footer_divider,
         footer_row,
     ];
 
     let settings_card = container(card_content)
         .width(820)
+        .height(640)
         .style(styles::card_style);
 
     container(settings_card)
@@ -540,7 +436,7 @@ pub fn settings_view(model: &SettingsModel) -> Element<'_, SettingsMessage> {
         .into()
 }
 
-fn custom_switch<'a>(
+pub fn custom_switch<'a>(
     _is_on: bool,
     anim_progress: f32,
     on_toggle: impl Fn(bool) -> SettingsMessage + 'a,
@@ -570,25 +466,19 @@ fn custom_switch<'a>(
             ..Default::default()
         });
 
-    let track = container(
-        row![
-            Space::with_width(thumb_offset),
-            thumb,
-        ]
+    let track = container(row![Space::with_width(thumb_offset), thumb,].align_y(Alignment::Center))
+        .width(44)
+        .height(24)
         .align_y(Alignment::Center)
-    )
-    .width(44)
-    .height(24)
-    .align_y(Alignment::Center)
-    .style(move |_| container::Style {
-        background: Some(iced::Background::Color(track_bg)),
-        border: iced::Border {
-            color: colors::BORDER,
-            width: 1.0,
-            radius: 12.0.into(),
-        },
-        ..Default::default()
-    });
+        .style(move |_| container::Style {
+            background: Some(iced::Background::Color(track_bg)),
+            border: iced::Border {
+                color: colors::BORDER,
+                width: 1.0,
+                radius: 12.0.into(),
+            },
+            ..Default::default()
+        });
 
     let target_state = anim_progress <= 0.5;
 
@@ -597,6 +487,59 @@ fn custom_switch<'a>(
         .padding(0)
         .on_press(on_toggle(target_state))
         .into()
+}
+
+pub fn stepper_widget<'a>(
+    val: &str,
+    on_dec: SettingsMessage,
+    on_inc: SettingsMessage,
+) -> Element<'a, SettingsMessage> {
+    let minus_btn = button(
+        text("-")
+            .size(14)
+            .font(styles::BOLD_FONT)
+            .color(colors::TEXT_PRIMARY),
+    )
+    .padding([4, 12])
+    .style(styles::ghost_button_style)
+    .on_press(on_dec);
+
+    let count_text = text(val.to_string())
+        .size(13)
+        .font(styles::BOLD_FONT)
+        .color(colors::TEXT_PRIMARY);
+
+    let count_box = container(count_text)
+        .width(36)
+        .align_x(Alignment::Center)
+        .align_y(Alignment::Center);
+
+    let plus_btn = button(
+        text("+")
+            .size(14)
+            .font(styles::BOLD_FONT)
+            .color(colors::TEXT_PRIMARY),
+    )
+    .padding([4, 12])
+    .style(styles::ghost_button_style)
+    .on_press(on_inc);
+
+    container(
+        row![minus_btn, count_box, plus_btn]
+            .spacing(4)
+            .align_y(Alignment::Center),
+    )
+    .padding([2, 4])
+    .style(|_| container::Style {
+        background: Some(iced::Background::Color(colors::SURFACE_HIGH)),
+        border: iced::Border {
+            color: colors::BORDER,
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        ..Default::default()
+    })
+    .into()
 }
 
 fn tab_item<'a>(
@@ -608,14 +551,26 @@ fn tab_item<'a>(
 
     let label_text = text(label)
         .size(14)
-        .font(if is_active { styles::BOLD_FONT } else { iced::Font::DEFAULT })
-        .color(if is_active { colors::PRIMARY } else { colors::TEXT_MUTED });
+        .font(if is_active {
+            styles::BOLD_FONT
+        } else {
+            iced::Font::DEFAULT
+        })
+        .color(if is_active {
+            colors::PRIMARY
+        } else {
+            colors::TEXT_MUTED
+        });
 
     let underline = container(Space::with_height(2))
         .width(Length::Fill)
         .height(2)
         .style(move |_| container::Style {
-            background: Some(iced::Background::Color(if is_active { colors::PRIMARY } else { iced::Color::TRANSPARENT })),
+            background: Some(iced::Background::Color(if is_active {
+                colors::PRIMARY
+            } else {
+                iced::Color::TRANSPARENT
+            })),
             ..Default::default()
         });
 
@@ -627,12 +582,15 @@ fn tab_item<'a>(
         .into()
 }
 
-fn setting_row<'a>(
+pub fn setting_row<'a>(
     title: &'static str,
     description: &'static str,
     control: Element<'a, SettingsMessage>,
 ) -> Element<'a, SettingsMessage> {
-    let title_text = text(title).size(14).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY);
+    let title_text = text(title)
+        .size(14)
+        .font(styles::BOLD_FONT)
+        .color(colors::TEXT_PRIMARY);
 
     let left_col = if description.is_empty() {
         column![title_text]
@@ -641,11 +599,7 @@ fn setting_row<'a>(
         column![title_text, desc_text].spacing(2)
     };
 
-    row![
-        left_col,
-        Space::with_width(Length::Fill),
-        control,
-    ]
-    .align_y(Alignment::Center)
-    .into()
+    row![left_col, Space::with_width(Length::Fill), control,]
+        .align_y(Alignment::Center)
+        .into()
 }

@@ -5,6 +5,7 @@ pub mod engine;
 pub mod integrity;
 pub mod metadata;
 pub mod task;
+pub mod throttler;
 pub mod worker;
 pub mod writer;
 
@@ -12,4 +13,5 @@ pub mod writer;
 pub use engine::{DownloadEngine, EngineUiEvent};
 pub use integrity::{compute_sha256, verify_sha256, verify_structure, verify_zip_eocd};
 pub use metadata::{FileMetadata, MetadataService};
+pub use throttler::Throttler;
 pub use writer::PositionalWriter;

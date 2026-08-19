@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::models::download::{DownloadItem, DownloadState, DownloadUrl, FileType};
 use crate::services::downloads::{DownloadEngine, EngineUiEvent, FileMetadata};
 use crate::services::storage;
@@ -13,6 +14,8 @@ use iced::{Element, Length, Subscription, Task, Theme};
 pub enum Message {
     Tick,
     SecondTick,
+    CheckNetworkConnectivity,
+    NetworkConnectivityResult(bool),
     SyncWithDisk,
     DownloadsLoaded(Result<Vec<DownloadItem>, String>),
     DownloadSaved(Result<DownloadItem, String>),
@@ -42,6 +45,7 @@ pub struct QdmApp {
     current_filter: sidebar::NavFilter,
     search_query: String,
     downloads: Vec<DownloadItem>,
+    retry_counts: HashMap<usize, u32>,
     settings: settings::SettingsModel,
     add_dialog: add_dialogue::AddDialogModel,
     mirror_dialog: mirror_dialogue::MirrorDialogModel,
@@ -56,6 +60,7 @@ impl Default for QdmApp {
             current_filter: sidebar::NavFilter::All,
             search_query: String::new(),
             downloads: Vec::new(),
+            retry_counts: HashMap::new(),
             settings: settings::SettingsModel::default(),
             add_dialog: add_dialogue::AddDialogModel::default(),
             mirror_dialog: mirror_dialogue::MirrorDialogModel::default(),
@@ -98,6 +103,48 @@ impl QdmApp {
                     }
                 }
             }
+            Message::CheckNetworkConnectivity => {
+                return Task::perform(
+                    crate::services::network::connectivity::ConnectivityMonitor::is_online(),
+                    Message::NetworkConnectivityResult,
+                );
+            }
+            Message::NetworkConnectivityResult(is_online) => {
+                if is_online {
+                    let mut resume_tasks = Vec::new();
+                    for item in &mut self.downloads {
+                        if matches!(item.state, DownloadState::WaitingForNetwork { .. }) {
+                            println!("[QDM Network] Connectivity restored! Resuming download {}...", item.id);
+                            item.state = DownloadState::Downloading {
+                                downloaded_bytes: item.downloaded_bytes,
+                                total_bytes: item.total_bytes,
+                                speed_bps: 0,
+                                eta_secs: None,
+                            };
+                            let item_clone = item.clone();
+                            let engine = self.engine.clone();
+                            resume_tasks.push(Task::perform(
+                                async move {
+                                    engine.start_or_resume(item_clone).await;
+                                    Ok(())
+                                },
+                                |_: Result<(), String>| Message::Tick,
+                            ));
+                        }
+                    }
+
+                    if !resume_tasks.is_empty() {
+                        let downloads_clone = self.downloads.clone();
+                        return Task::batch([
+                            Task::perform(
+                                async move { storage::json_store::save_downloads(&downloads_clone) },
+                                Message::DownloadsPersisted,
+                            ),
+                            Task::batch(resume_tasks),
+                        ]);
+                    }
+                }
+            }
             Message::DownloadsLoaded(Ok(loaded_items)) => {
                 self.downloads = loaded_items;
 
@@ -132,6 +179,12 @@ impl QdmApp {
             }
             Message::AddUrlPressed => {
                 self.add_dialog.reset();
+                self.add_dialog.save_to = self.settings.download_folder.clone();
+                self.add_dialog.max_connections = self.settings.max_connections.to_string();
+                if !self.settings.speed_limit_value.is_empty() {
+                    self.add_dialog.speed_limit = self.settings.speed_limit_value.clone();
+                    self.add_dialog.speed_unit = self.settings.speed_limit_unit;
+                }
                 self.add_dialog.is_open = true;
             }
             Message::NotificationPressed => {
@@ -157,8 +210,13 @@ impl QdmApp {
                     }
                     item.chunks = chunks;
 
+                    // If stream is actively transferring bytes, reset per-failure auto-retry counter
+                    if speed_bps > 0 && self.retry_counts.contains_key(&id) {
+                        self.retry_counts.remove(&id);
+                    }
+
                     // Guard: Never allow trailing ProgressUpdated events to revert a Completed or Paused/Failed download
-                    if matches!(item.state, DownloadState::Completed | DownloadState::Failed { .. } | DownloadState::Paused { .. }) {
+                    if matches!(item.state, DownloadState::Completed | DownloadState::Failed { .. } | DownloadState::Paused { .. } | DownloadState::WaitingForNetwork { .. }) {
                         return Task::none();
                     }
 
@@ -185,6 +243,7 @@ impl QdmApp {
                 }
             }
             Message::EngineEvent(EngineUiEvent::DownloadCompleted { id, sha256 }) => {
+                self.retry_counts.remove(&id);
                 if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
                     println!("[QDM UI] Item {} completed successfully! SHA-256: {:?}", id, sha256);
                     item.state = DownloadState::Completed;
@@ -212,6 +271,38 @@ impl QdmApp {
             Message::EngineEvent(EngineUiEvent::DownloadFailed { id, error }) => {
                 if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
                     println!("[QDM UI] Item {} failed: {}", id, error);
+
+                    // Check auto-retry budget
+                    if self.settings.auto_retry_downloads {
+                        let count = self.retry_counts.entry(id).or_insert(0);
+                        if *count < self.settings.max_auto_retries {
+                            *count += 1;
+                            let current_retry = *count;
+                            println!(
+                                "[QDM Auto-Retry] Download {} encountered error, triggering retry {}/{} in 2s...",
+                                id, current_retry, self.settings.max_auto_retries
+                            );
+
+                            item.state = DownloadState::Downloading {
+                                downloaded_bytes: item.downloaded_bytes,
+                                total_bytes: item.total_bytes,
+                                speed_bps: 0,
+                                eta_secs: None,
+                            };
+
+                            let item_clone = item.clone();
+                            let engine = self.engine.clone();
+                            return Task::perform(
+                                async move {
+                                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                    engine.start_or_resume(item_clone).await;
+                                    Ok(())
+                                },
+                                |_: Result<(), String>| Message::Tick,
+                            );
+                        }
+                    }
+
                     item.state = DownloadState::Failed {
                         downloaded_bytes: item.downloaded_bytes,
                         total_bytes: item.total_bytes,
@@ -259,7 +350,7 @@ impl QdmApp {
             Message::TogglePause(id) => {
                 if let Some(item) = self.downloads.iter_mut().find(|d| d.id == id) {
                     match &item.state {
-                        DownloadState::Downloading { downloaded_bytes, total_bytes, .. } => {
+                        DownloadState::Downloading { downloaded_bytes, total_bytes, .. } | DownloadState::WaitingForNetwork { downloaded_bytes, total_bytes } => {
                             let bytes = *downloaded_bytes;
                             let total = *total_bytes;
                             item.state = DownloadState::Paused {
@@ -329,32 +420,36 @@ impl QdmApp {
                         },
                         Message::DownloadsPersisted,
                     );
-                } else {
-                    // No remembered preference: prompt user with Delete Confirmation Modal
-                    if let Some(item) = self.downloads.iter().find(|d| d.id == id) {
-                        self.delete_dialog.open(delete_dialogue::DeletePendingItem {
-                            id,
-                            filename: item.filename.clone(),
-                            save_path: item.save_path.clone(),
-                        });
-                    }
+                }
+
+                // If not remembered, open the confirmation modal
+                if let Some(item) = self.downloads.iter().find(|d| d.id == id) {
+                    self.delete_dialog.open(delete_dialogue::DeletePendingItem {
+                        id: item.id,
+                        filename: item.filename.clone(),
+                        save_path: item.save_path.clone(),
+                    });
                 }
             }
             Message::OpenFolder(id) => {
                 if let Some(item) = self.downloads.iter().find(|d| d.id == id) {
-                    let target = std::path::Path::new(&item.save_path).join(&item.filename);
-                    let temp_target = std::path::Path::new(&item.save_path).join(format!("{}.qdmdownload", item.filename));
-                    if target.exists() {
+                    let folder_path = item.save_path.clone();
+                    #[cfg(target_os = "windows")]
+                    {
                         let _ = std::process::Command::new("explorer")
-                            .arg(format!("/select,{}", target.display()))
+                            .arg(&folder_path)
                             .spawn();
-                    } else if temp_target.exists() {
-                        let _ = std::process::Command::new("explorer")
-                            .arg(format!("/select,{}", temp_target.display()))
+                    }
+                    #[cfg(target_os = "macos")]
+                    {
+                        let _ = std::process::Command::new("open")
+                            .arg(&folder_path)
                             .spawn();
-                    } else {
-                        let _ = std::process::Command::new("explorer")
-                            .arg(&item.save_path)
+                    }
+                    #[cfg(target_os = "linux")]
+                    {
+                        let _ = std::process::Command::new("xdg-open")
+                            .arg(&folder_path)
                             .spawn();
                     }
                 }
@@ -404,6 +499,12 @@ impl QdmApp {
                     self.add_dialog.filename.trim().to_string()
                 };
 
+                let speed_limit_bps = if !self.add_dialog.speed_limit.trim().is_empty() {
+                    self.add_dialog.speed_limit.trim().parse::<u64>().ok().map(|v| self.add_dialog.speed_unit.to_bps(v))
+                } else {
+                    self.settings.global_speed_limit_bps()
+                };
+
                 let save_path = self.add_dialog.save_to.clone();
                 let file_conflict = crate::core::utils::paths::file_exists_or_downloading(&save_path, &filename);
 
@@ -418,13 +519,12 @@ impl QdmApp {
                         None => {
                             let parsed_mirrors = self.add_dialog.parsed_mirrors();
                             let max_connections = self.add_dialog.max_connections.trim().parse::<usize>().unwrap_or(8);
-                            let speed_limit = self.add_dialog.speed_limit.trim().parse::<usize>().unwrap_or(0);
                             self.conflict_dialog.open(conflict_dialogue::ConflictPendingDownload {
                                 url,
                                 filename,
                                 save_to: save_path,
                                 max_connections,
-                                speed_limit,
+                                speed_limit: speed_limit_bps,
                                 mirror_urls: parsed_mirrors,
                             });
                             self.add_dialog.is_open = false;
@@ -480,7 +580,7 @@ impl QdmApp {
                     file_type,
                     resumable,
                     max_connections,
-                    speed_limit_bps: None,
+                    speed_limit_bps,
                     etag: None,
                     last_modified: None,
                     sha256_hash: None,
@@ -509,6 +609,7 @@ impl QdmApp {
 
                 let mut filename = add_dialogue::extract_filename(&url, None);
                 let save_path = self.add_dialog.save_to.clone();
+                let speed_limit_bps = self.settings.global_speed_limit_bps();
                 let file_conflict = crate::core::utils::paths::file_exists_or_downloading(&save_path, &filename);
 
                 if file_conflict {
@@ -525,8 +626,8 @@ impl QdmApp {
                                 url,
                                 filename,
                                 save_to: save_path,
-                                max_connections: 8,
-                                speed_limit: 0,
+                                max_connections: self.settings.max_connections,
+                                speed_limit: speed_limit_bps,
                                 mirror_urls: parsed_mirrors,
                             });
                             self.add_dialog.is_open = false;
@@ -555,8 +656,8 @@ impl QdmApp {
                     state: DownloadState::FetchingMetadata,
                     file_type,
                     resumable: false,
-                    max_connections: 8,
-                    speed_limit_bps: None,
+                    max_connections: self.settings.max_connections as u32,
+                    speed_limit_bps,
                     etag: None,
                     last_modified: None,
                     sha256_hash: None,
@@ -764,7 +865,7 @@ impl QdmApp {
                             file_type,
                             resumable: false,
                             max_connections: pending.max_connections as u32,
-                            speed_limit_bps: if pending.speed_limit > 0 { Some(pending.speed_limit as u64 * 1024) } else { None },
+                            speed_limit_bps: pending.speed_limit,
                             etag: None,
                             last_modified: None,
                             sha256_hash: None,
@@ -801,7 +902,7 @@ impl QdmApp {
                             file_type,
                             resumable: false,
                             max_connections: pending.max_connections as u32,
-                            speed_limit_bps: if pending.speed_limit > 0 { Some(pending.speed_limit as u64 * 1024) } else { None },
+                            speed_limit_bps: pending.speed_limit,
                             etag: None,
                             last_modified: None,
                             sha256_hash: None,
@@ -911,15 +1012,16 @@ impl QdmApp {
 
         let second_tick_sub = iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::SecondTick);
         let disk_sync_sub = iced::time::every(std::time::Duration::from_secs(5)).map(|_| Message::SyncWithDisk);
+        let network_check_sub = iced::time::every(std::time::Duration::from_secs(3)).map(|_| Message::CheckNetworkConnectivity);
 
-        Subscription::batch([engine_sub, anim_sub, second_tick_sub, disk_sync_sub])
+        Subscription::batch([engine_sub, anim_sub, second_tick_sub, disk_sync_sub, network_check_sub])
     }
 
     pub fn view(&self) -> Element<'_, Message> {
         let downloading_count = self
             .downloads
             .iter()
-            .filter(|d| matches!(d.state, DownloadState::Downloading { .. } | DownloadState::FetchingMetadata | DownloadState::Queued))
+            .filter(|d| matches!(d.state, DownloadState::Downloading { .. } | DownloadState::FetchingMetadata | DownloadState::Queued | DownloadState::WaitingForNetwork { .. }))
             .count();
 
         let completed_count = self
