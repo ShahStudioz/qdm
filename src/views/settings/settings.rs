@@ -1,3 +1,4 @@
+use crate::models::schedule::{OnCompleteAction, ScheduleConfig};
 use crate::theme::{colors, styles};
 use crate::views::settings::tabs;
 use iced::widget::{button, column, container, row, scrollable, text, Space};
@@ -9,7 +10,15 @@ pub enum SettingsTab {
     #[default]
     General,
     Downloads,
+    Scheduler,
     Updates,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ScheduleSubTab {
+    #[default]
+    Settings,
+    ScheduledDownloads,
 }
 
 fn default_true() -> bool {
@@ -132,6 +141,12 @@ pub struct SettingsModel {
     #[serde(default)]
     pub speed_limit_unit: SpeedUnit,
 
+    // Scheduler Tab
+    #[serde(default)]
+    pub schedule: ScheduleConfig,
+    #[serde(skip)]
+    pub schedule_subtab: ScheduleSubTab,
+
     // Updates Tab
     #[serde(default = "default_true")]
     pub auto_check_updates: bool,
@@ -164,6 +179,9 @@ impl Default for SettingsModel {
             speed_limit_value: String::new(),
             speed_limit_unit: SpeedUnit::KBps,
 
+            schedule: ScheduleConfig::default(),
+            schedule_subtab: ScheduleSubTab::Settings,
+
             auto_check_updates: true,
             auto_check_updates_anim: 1.0,
         }
@@ -189,6 +207,9 @@ impl SettingsModel {
         self.minimize_to_tray_anim = if self.minimize_to_tray { 1.0 } else { 0.0 };
         self.show_notifications_anim = if self.show_notifications { 1.0 } else { 0.0 };
         self.auto_retry_downloads_anim = if self.auto_retry_downloads { 1.0 } else { 0.0 };
+        self.schedule.enabled_anim = if self.schedule.enabled { 1.0 } else { 0.0 };
+        self.schedule.stop_enabled_anim = if self.schedule.stop_enabled { 1.0 } else { 0.0 };
+        self.schedule.prioritize_scheduled_anim = if self.schedule.prioritize_scheduled { 1.0 } else { 0.0 };
         self.auto_check_updates_anim = if self.auto_check_updates { 1.0 } else { 0.0 };
     }
 
@@ -197,12 +218,18 @@ impl SettingsModel {
         let target_tray = if self.minimize_to_tray { 1.0 } else { 0.0 };
         let target_notify = if self.show_notifications { 1.0 } else { 0.0 };
         let target_retry = if self.auto_retry_downloads { 1.0 } else { 0.0 };
+        let target_sched = if self.schedule.enabled { 1.0 } else { 0.0 };
+        let target_sched_stop = if self.schedule.stop_enabled { 1.0 } else { 0.0 };
+        let target_sched_priority = if self.schedule.prioritize_scheduled { 1.0 } else { 0.0 };
         let target_updates = if self.auto_check_updates { 1.0 } else { 0.0 };
 
         (self.launch_at_startup_anim - target_startup).abs() > 0.005
             || (self.minimize_to_tray_anim - target_tray).abs() > 0.005
             || (self.show_notifications_anim - target_notify).abs() > 0.005
             || (self.auto_retry_downloads_anim - target_retry).abs() > 0.005
+            || (self.schedule.enabled_anim - target_sched).abs() > 0.005
+            || (self.schedule.stop_enabled_anim - target_sched_stop).abs() > 0.005
+            || (self.schedule.prioritize_scheduled_anim - target_sched_priority).abs() > 0.005
             || (self.auto_check_updates_anim - target_updates).abs() > 0.005
     }
 
@@ -211,12 +238,18 @@ impl SettingsModel {
         let target_tray = if self.minimize_to_tray { 1.0 } else { 0.0 };
         let target_notify = if self.show_notifications { 1.0 } else { 0.0 };
         let target_retry = if self.auto_retry_downloads { 1.0 } else { 0.0 };
+        let target_sched = if self.schedule.enabled { 1.0 } else { 0.0 };
+        let target_sched_stop = if self.schedule.stop_enabled { 1.0 } else { 0.0 };
+        let target_sched_priority = if self.schedule.prioritize_scheduled { 1.0 } else { 0.0 };
         let target_updates = if self.auto_check_updates { 1.0 } else { 0.0 };
 
         self.launch_at_startup_anim += (target_startup - self.launch_at_startup_anim) * 0.35;
         self.minimize_to_tray_anim += (target_tray - self.minimize_to_tray_anim) * 0.35;
         self.show_notifications_anim += (target_notify - self.show_notifications_anim) * 0.35;
         self.auto_retry_downloads_anim += (target_retry - self.auto_retry_downloads_anim) * 0.35;
+        self.schedule.enabled_anim += (target_sched - self.schedule.enabled_anim) * 0.35;
+        self.schedule.stop_enabled_anim += (target_sched_stop - self.schedule.stop_enabled_anim) * 0.35;
+        self.schedule.prioritize_scheduled_anim += (target_sched_priority - self.schedule.prioritize_scheduled_anim) * 0.35;
         self.auto_check_updates_anim += (target_updates - self.auto_check_updates_anim) * 0.35;
 
         if (self.launch_at_startup_anim - target_startup).abs() < 0.005 {
@@ -230,6 +263,15 @@ impl SettingsModel {
         }
         if (self.auto_retry_downloads_anim - target_retry).abs() < 0.005 {
             self.auto_retry_downloads_anim = target_retry;
+        }
+        if (self.schedule.enabled_anim - target_sched).abs() < 0.005 {
+            self.schedule.enabled_anim = target_sched;
+        }
+        if (self.schedule.stop_enabled_anim - target_sched_stop).abs() < 0.005 {
+            self.schedule.stop_enabled_anim = target_sched_stop;
+        }
+        if (self.schedule.prioritize_scheduled_anim - target_sched_priority).abs() < 0.005 {
+            self.schedule.prioritize_scheduled_anim = target_sched_priority;
         }
         if (self.auto_check_updates_anim - target_updates).abs() < 0.005 {
             self.auto_check_updates_anim = target_updates;
@@ -263,6 +305,19 @@ pub enum SettingsMessage {
     MaxAutoRetriesInc,
     SpeedLimitValueChanged(String),
     SpeedLimitUnitChanged(SpeedUnit),
+
+    // Scheduler Tab
+    ScheduleSubTabSelected(ScheduleSubTab),
+    ToggleScheduleEnabled(bool),
+    ToggleScheduleStopEnabled(bool),
+    TogglePrioritizeScheduled(bool),
+    ScheduleStartTimeChanged(String),
+    ScheduleStopTimeChanged(String),
+    ScheduleToggleDay(usize),
+    ScheduleOnCompleteChanged(OnCompleteAction),
+    MoveScheduledItemUp(usize),
+    MoveScheduledItemDown(usize),
+    RemoveFromSchedule(usize),
 
     // Updates Tab
     ToggleUpdates(bool),
@@ -353,6 +408,19 @@ pub fn update(model: &mut SettingsModel, message: SettingsMessage) {
         }
         SettingsMessage::SpeedLimitUnitChanged(unit) => model.speed_limit_unit = unit,
 
+        // Scheduler Tab Handlers
+        SettingsMessage::ScheduleSubTabSelected(subtab) => model.schedule_subtab = subtab,
+        SettingsMessage::ToggleScheduleEnabled(val) => model.schedule.enabled = val,
+        SettingsMessage::ToggleScheduleStopEnabled(val) => model.schedule.stop_enabled = val,
+        SettingsMessage::TogglePrioritizeScheduled(val) => model.schedule.prioritize_scheduled = val,
+        SettingsMessage::ScheduleStartTimeChanged(val) => model.schedule.start_time = val,
+        SettingsMessage::ScheduleStopTimeChanged(val) => model.schedule.stop_time = val,
+        SettingsMessage::ScheduleToggleDay(idx) => model.schedule.toggle_day(idx),
+        SettingsMessage::ScheduleOnCompleteChanged(action) => model.schedule.on_complete_action = action,
+        SettingsMessage::MoveScheduledItemUp(_) | SettingsMessage::MoveScheduledItemDown(_) | SettingsMessage::RemoveFromSchedule(_) => {
+            // These list modification actions are handled at App level
+        }
+
         SettingsMessage::ToggleUpdates(val) => model.auto_check_updates = val,
         SettingsMessage::CheckUpdatesPressed => {
             println!("[QDM] Checking for updates...");
@@ -367,10 +435,14 @@ pub fn update(model: &mut SettingsModel, message: SettingsMessage) {
     let _ = crate::services::storage::json_store::save_settings(model);
 }
 
-pub fn settings_view(model: &SettingsModel) -> Element<'_, SettingsMessage> {
+pub fn settings_view<'a>(
+    model: &'a SettingsModel,
+    downloads: &'a [crate::models::download::DownloadItem],
+) -> Element<'a, SettingsMessage> {
     let tabs_row = row![
         tab_item("General", SettingsTab::General, model.active_tab),
         tab_item("Downloads", SettingsTab::Downloads, model.active_tab),
+        tab_item("Scheduler", SettingsTab::Scheduler, model.active_tab),
         tab_item("Updates", SettingsTab::Updates, model.active_tab),
     ]
     .spacing(24)
@@ -389,6 +461,7 @@ pub fn settings_view(model: &SettingsModel) -> Element<'_, SettingsMessage> {
     let tab_content: Element<SettingsMessage> = match model.active_tab {
         SettingsTab::General => tabs::general::view(model),
         SettingsTab::Downloads => tabs::downloads::view(model),
+        SettingsTab::Scheduler => tabs::scheduler::view(model, downloads),
         SettingsTab::Updates => tabs::updates::view(model),
     };
 

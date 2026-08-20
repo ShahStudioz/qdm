@@ -45,6 +45,7 @@ impl DownloadUrl {
 pub enum DownloadState {
     FetchingMetadata,
     Queued,
+    Scheduled,
     Downloading {
         downloaded_bytes: u64,
         total_bytes: Option<u64>,
@@ -190,6 +191,8 @@ pub struct DownloadItem {
     pub file_type: FileType,
     #[serde(default)]
     pub resumable: bool,
+    #[serde(default)]
+    pub is_scheduled: bool,
     #[serde(default = "default_connections")]
     pub max_connections: u32,
     #[serde(default)]
@@ -214,7 +217,9 @@ impl DownloadItem {
     pub fn progress(&self) -> f32 {
         match &self.state {
             DownloadState::Completed => 100.0,
-            DownloadState::FetchingMetadata | DownloadState::Queued => 0.0,
+            DownloadState::FetchingMetadata | DownloadState::Queued | DownloadState::Scheduled => {
+                0.0
+            }
             DownloadState::Downloading {
                 downloaded_bytes,
                 total_bytes,
@@ -273,6 +278,18 @@ impl DownloadItem {
 
     pub fn formatted_downloaded_size(&self) -> String {
         format_bytes(self.downloaded_bytes)
+    }
+
+    pub fn formatted_created_date(&self) -> String {
+        if self.created_at == 0 {
+            return "Just now".to_string();
+        }
+        if let Some(dt) = chrono::DateTime::from_timestamp(self.created_at as i64, 0) {
+            let local: chrono::DateTime<chrono::Local> = chrono::DateTime::from(dt);
+            local.format("%b %d, %Y %I:%M %p").to_string()
+        } else {
+            "Unknown".to_string()
+        }
     }
 
     pub fn get_url(&self) -> &str {

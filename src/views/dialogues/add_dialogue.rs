@@ -546,6 +546,22 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
         }
 
         AddDialogStep::DownloadDetails => {
+            let schedule_btn = button(
+                row![
+                    icon(icons::ICON_SCHEDULED)
+                        .size(13)
+                        .color(colors::TEXT_PRIMARY),
+                    text("Schedule for Later")
+                        .size(13)
+                        .color(colors::TEXT_PRIMARY),
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center),
+            )
+            .padding([10, 16])
+            .style(styles::ghost_button_style)
+            .on_press(AddDialogueModalMessage::ScheduleNewDownload);
+
             let start_btn = button(
                 row![
                     icon(icons::ICON_DOWNLOADING)
@@ -563,10 +579,15 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
             .style(styles::primary_button_style)
             .on_press(AddDialogueModalMessage::SubmitNewDownload);
 
-            row![Space::with_width(Length::Fill), cancel_btn, start_btn]
-                .spacing(12)
-                .align_y(Alignment::Center)
-                .into()
+            row![
+                Space::with_width(Length::Fill),
+                cancel_btn,
+                schedule_btn,
+                start_btn
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center)
+            .into()
         }
     };
 
@@ -625,6 +646,7 @@ pub enum AddDialogueModalMessage {
     AddMirrorUrlsChanged(String),
     QuickAddDownload,
     SubmitNewDownload,
+    ScheduleNewDownload,
 }
 
 pub fn update(
@@ -731,7 +753,9 @@ pub fn update(
         AddDialogueModalMessage::AddMirrorUrlsChanged(val) => {
             state.mirror_urls_text = val;
         }
-        AddDialogueModalMessage::QuickAddDownload | AddDialogueModalMessage::SubmitNewDownload => {
+        AddDialogueModalMessage::QuickAddDownload
+        | AddDialogueModalMessage::SubmitNewDownload
+        | AddDialogueModalMessage::ScheduleNewDownload => {
             // Final submission is handled at app level
         }
     }

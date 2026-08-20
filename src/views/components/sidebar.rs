@@ -10,6 +10,7 @@ pub enum NavFilter {
     Completed,
     Failed,
     Scheduled,
+    Queue,
     Settings,
 }
 

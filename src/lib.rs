@@ -10,12 +10,14 @@ pub mod services {
         pub mod engine;
         pub mod integrity;
         pub mod metadata;
+        pub mod queue;
         pub mod task;
         pub mod throttler;
         pub mod worker;
         pub mod writer;
     }
     pub mod network;
+    pub mod schedule;
 }
 
 pub mod core {

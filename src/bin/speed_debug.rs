@@ -63,6 +63,7 @@ async fn main() {
         },
         file_type: FileType::Archive,
         resumable: meta.supports_resume,
+        is_scheduled: false,
         max_connections: 8,
         speed_limit_bps: None,
         etag: meta.etag,

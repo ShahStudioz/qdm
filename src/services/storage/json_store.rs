@@ -18,8 +18,7 @@ pub fn load_downloads() -> Result<Vec<DownloadItem>, String> {
         return Ok(Vec::new());
     }
 
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse downloads JSON: {}", e))
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse downloads JSON: {}", e))
 }
 
 /// Saves the list of download items to `~/qdm/downloads.json` with pretty formatting.
@@ -47,7 +46,7 @@ pub fn insert_download(mut item: DownloadItem) -> Result<DownloadItem, String> {
         item.created_at = now_timestamp();
     }
 
-    downloads.insert(0, item.clone());
+    downloads.push(item.clone());
     save_downloads(&downloads)?;
 
     Ok(item)
@@ -125,6 +124,7 @@ mod tests {
             },
             file_type: FileType::Archive,
             resumable: true,
+            is_scheduled: true,
             max_connections: 8,
             speed_limit_bps: None,
             etag: Some("\"test-etag-12345\"".to_string()),
@@ -148,6 +148,7 @@ mod tests {
         assert_eq!(item.save_path, parsed.save_path);
         assert_eq!(item.state, parsed.state);
         assert_eq!(item.file_type, parsed.file_type);
+        assert_eq!(item.is_scheduled, parsed.is_scheduled);
     }
 
     #[test]
@@ -157,7 +158,10 @@ mod tests {
         let parsed: SettingsModel = serde_json::from_str(&json).expect("Deserialize settings");
 
         assert_eq!(settings.download_folder, parsed.download_folder);
-        assert_eq!(settings.simultaneous_downloads, parsed.simultaneous_downloads);
+        assert_eq!(
+            settings.simultaneous_downloads,
+            parsed.simultaneous_downloads
+        );
         assert_eq!(settings.max_connections, parsed.max_connections);
         assert_eq!(settings.max_threads, parsed.max_threads);
         assert_eq!(settings.auto_retry_downloads, parsed.auto_retry_downloads);
@@ -167,12 +171,22 @@ mod tests {
         assert_eq!(settings.show_notifications, parsed.show_notifications);
         assert_eq!(settings.file_conflict_action, parsed.file_conflict_action);
         assert_eq!(settings.delete_action, parsed.delete_action);
+        assert_eq!(settings.schedule, parsed.schedule);
         assert_eq!(settings.auto_check_updates, parsed.auto_check_updates);
     }
 
     #[test]
+    fn test_download_state_scheduled_serde() {
+        let state = DownloadState::Scheduled;
+        let json = serde_json::to_string(&state).expect("Serialize Scheduled state");
+        let parsed: DownloadState =
+            serde_json::from_str(&json).expect("Deserialize Scheduled state");
+        assert_eq!(state, parsed);
+    }
+
+    #[test]
     fn test_settings_model_with_custom_actions_serde() {
-        use crate::views::settings::settings::{FileConflictAction, DeleteAction};
+        use crate::views::settings::settings::{DeleteAction, FileConflictAction};
         let mut settings = SettingsModel::default();
         settings.file_conflict_action = Some(FileConflictAction::AutoRename);
         settings.delete_action = Some(DeleteAction::DeleteFromDisk);
@@ -180,7 +194,10 @@ mod tests {
         let json = serde_json::to_string(&settings).expect("Serialize settings");
         let parsed: SettingsModel = serde_json::from_str(&json).expect("Deserialize settings");
 
-        assert_eq!(parsed.file_conflict_action, Some(FileConflictAction::AutoRename));
+        assert_eq!(
+            parsed.file_conflict_action,
+            Some(FileConflictAction::AutoRename)
+        );
         assert_eq!(parsed.delete_action, Some(DeleteAction::DeleteFromDisk));
     }
 
@@ -210,7 +227,10 @@ mod tests {
         let unique3 = crate::core::utils::paths::generate_unique_filename(&temp_dir_str, base_file);
         assert_eq!(unique3, "test_archive (3).zip");
 
-        assert!(crate::core::utils::paths::file_exists_or_downloading(&temp_dir_str, "test_archive (2).zip"));
+        assert!(crate::core::utils::paths::file_exists_or_downloading(
+            &temp_dir_str,
+            "test_archive (2).zip"
+        ));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

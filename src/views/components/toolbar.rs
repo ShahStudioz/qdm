@@ -8,10 +8,10 @@ pub fn toolbar_view<'a, Message>(
     search_text: &'a str,
     active_count: usize,
     total_speed: impl Into<String>,
+    is_menu_open: bool,
     on_search_changed: impl Fn(String) -> Message + 'a,
     on_add_url_pressed: Message,
-    on_notification_pressed: Message,
-    on_settings_pressed: Message,
+    on_toggle_menu: Message,
 ) -> Element<'a, Message>
 where
     Message: 'a + Clone + 'static,
@@ -70,19 +70,12 @@ where
             ..Default::default()
         });
 
-    let bell_btn = button(
-        icon(icons::ICON_BELL).size(16).color(colors::TEXT_MUTED)
+    let menu_btn = button(
+        icon(icons::ICON_ELLIPSIS_V).size(16).color(if is_menu_open { colors::PRIMARY } else { colors::TEXT_MUTED })
     )
-    .padding([8, 8])
+    .padding([8, 10])
     .style(styles::icon_button_style)
-    .on_press(on_notification_pressed);
-
-    let gear_btn = button(
-        icon(icons::ICON_SETTINGS).size(16).color(colors::TEXT_MUTED)
-    )
-    .padding([8, 8])
-    .style(styles::icon_button_style)
-    .on_press(on_settings_pressed);
+    .on_press(on_toggle_menu);
 
     let toolbar_row = row![
         title_text,
@@ -95,15 +88,72 @@ where
         Space::with_width(8),
         divider,
         Space::with_width(8),
-        bell_btn,
-        gear_btn,
+        menu_btn,
     ]
     .spacing(4)
     .align_y(Alignment::Center);
 
-    container(toolbar_row)
+    let toolbar_container = container(toolbar_row)
         .width(Length::Fill)
         .padding([16, 24])
-        .style(styles::toolbar_style)
+        .style(styles::toolbar_style);
+
+    toolbar_container.into()
+}
+
+pub fn dropdown_overlay<'a, Message: Clone + 'static>(
+    on_open_queue: Message,
+    on_open_settings: Message,
+) -> Element<'a, Message> {
+    let queue_item = button(
+        row![
+            icon(icons::ICON_LIST_ORDER).size(14).color(colors::PRIMARY),
+            text("Downloads Queue").size(13).color(colors::TEXT_PRIMARY),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center),
+    )
+    .padding([8, 14])
+    .width(Length::Fill)
+    .style(styles::ghost_button_style)
+    .on_press(on_open_queue);
+
+    let settings_item = button(
+        row![
+            icon(icons::ICON_SETTINGS).size(14).color(colors::PRIMARY),
+            text("Settings").size(13).color(colors::TEXT_PRIMARY),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center),
+    )
+    .padding([8, 14])
+    .width(Length::Fill)
+    .style(styles::ghost_button_style)
+    .on_press(on_open_settings);
+
+    let dropdown_menu = container(column![queue_item, settings_item].spacing(2))
+        .width(180)
+        .padding(4)
+        .style(|_| container::Style {
+            background: Some(iced::Background::Color(colors::SURFACE)),
+            border: iced::Border {
+                color: colors::BORDER,
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            shadow: iced::Shadow {
+                color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.6),
+                offset: iced::Vector::new(0.0, 6.0),
+                blur_radius: 16.0,
+            },
+            ..Default::default()
+        });
+
+    container(dropdown_menu)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(Alignment::End)
+        .align_y(Alignment::Start)
+        .padding(iced::padding::top(68).right(24))
         .into()
 }

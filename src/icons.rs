@@ -50,6 +50,11 @@ pub const ICON_GLOBE: char = '\u{f0ac}';         // fa-globe
 pub const ICON_GAUGE: char = '\u{f624}';         // fa-gauge-high
 pub const ICON_WIFI: char = '\u{f1eb}';          // fa-wifi
 pub const ICON_WIFI_SLASH: char = '\u{e073}';    // fa-wifi-slash
+pub const ICON_ELLIPSIS_V: char = '\u{f142}';    // fa-ellipsis-vertical
+pub const ICON_ARROW_UP: char = '\u{f062}';      // fa-arrow-up
+pub const ICON_ARROW_DOWN: char = '\u{f063}';    // fa-arrow-down
+pub const ICON_LIST_ORDER: char = '\u{f0cb}';    // fa-list-ol
+pub const ICON_XMARK: char = '\u{f00d}';         // fa-xmark
 
 // File Type Icons
 pub const ICON_DISC: char = '\u{f51e}';          // fa-compact-disc (ISO)

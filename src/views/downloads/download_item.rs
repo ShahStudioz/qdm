@@ -50,6 +50,32 @@ where
 
     let mut header_left = row![filename_text].spacing(10).align_y(Alignment::Center);
 
+    if item.is_scheduled && !matches!(item.state, DownloadState::Scheduled) {
+        let sched_badge = container(
+            row![
+                icon(icons::ICON_SCHEDULED)
+                    .size(10)
+                    .color(colors::BACKGROUND),
+                text("SCHEDULED")
+                    .size(10)
+                    .font(styles::BOLD_FONT)
+                    .color(colors::BACKGROUND),
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center),
+        )
+        .padding([2, 8])
+        .style(|_| container::Style {
+            background: Some(iced::Background::Color(colors::PRIMARY)),
+            border: iced::Border {
+                radius: 10.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        header_left = header_left.push(sched_badge);
+    }
+
     match &item.state {
         DownloadState::FetchingMetadata => {
             let badge = container(
@@ -76,10 +102,43 @@ where
         }
         DownloadState::Queued => {
             let badge = container(
-                text("QUEUED")
-                    .size(10)
-                    .font(styles::BOLD_FONT)
-                    .color(colors::BACKGROUND),
+                row![
+                    icon(icons::ICON_LIST_ORDER)
+                        .size(10)
+                        .color(colors::WARNING),
+                    text("QUEUED")
+                        .size(10)
+                        .font(styles::BOLD_FONT)
+                        .color(colors::WARNING),
+                ]
+                .spacing(4)
+                .align_y(Alignment::Center),
+            )
+            .padding([2, 8])
+            .style(|_| container::Style {
+                background: Some(iced::Background::Color(colors::SURFACE_HIGH)),
+                border: iced::Border {
+                    color: colors::WARNING,
+                    width: 1.0,
+                    radius: 10.0.into(),
+                },
+                ..Default::default()
+            });
+            header_left = header_left.push(badge);
+        }
+        DownloadState::Scheduled => {
+            let badge = container(
+                row![
+                    icon(icons::ICON_SCHEDULED)
+                        .size(10)
+                        .color(colors::BACKGROUND),
+                    text("SCHEDULED")
+                        .size(10)
+                        .font(styles::BOLD_FONT)
+                        .color(colors::BACKGROUND),
+                ]
+                .spacing(4)
+                .align_y(Alignment::Center),
             )
             .padding([2, 8])
             .style(|_| container::Style {
@@ -234,7 +293,6 @@ where
 
     let actions_row: Element<Message> = match &item.state {
         DownloadState::FetchingMetadata
-        | DownloadState::Queued
         | DownloadState::Downloading { .. }
         | DownloadState::WaitingForNetwork { .. } => {
             let pause_btn = button(icon(icons::ICON_PAUSE).size(14))
@@ -260,7 +318,7 @@ where
                 .align_y(Alignment::Center)
                 .into()
         }
-        DownloadState::Paused { .. } => {
+        DownloadState::Queued | DownloadState::Paused { .. } | DownloadState::Scheduled => {
             let play_btn = button(icon(icons::ICON_PLAY).size(14))
                 .style(styles::icon_button_style)
                 .on_press(on_toggle_pause(item_id));
@@ -337,6 +395,20 @@ where
                         .font(styles::BOLD_FONT)
                         .color(colors::TEXT_PRIMARY),
                     text("Waiting...").size(11).color(colors::TEXT_MUTED),
+                ]
+                .align_x(Alignment::End),
+            ),
+        ),
+        DownloadState::Scheduled => (
+            colors::PRIMARY,
+            format!("Scheduled · {}", item.formatted_total_size()),
+            Some(
+                column![
+                    text("Scheduled")
+                        .size(13)
+                        .font(styles::BOLD_FONT)
+                        .color(colors::PRIMARY),
+                    text("Waiting for window").size(11).color(colors::TEXT_MUTED),
                 ]
                 .align_x(Alignment::End),
             ),
