@@ -104,45 +104,51 @@ fn now_timestamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::download::{DownloadState, DownloadUrl, FileType};
+    use crate::models::download::{DownloadType, DownloadState, DownloadUrl, FileType, HttpMetadata};
+    
+    fn get_test_item() -> DownloadItem {
+        DownloadItem {
+            id: 1,
+            filename: "test.zip".to_string(),
+            save_path: "/tmp".to_string(),
+            downloaded_bytes: 1024,
+            total_bytes: Some(2048),
+            state: DownloadState::Paused {
+                downloaded_bytes: 1024,
+                total_bytes: Some(2048),
+            },
+            file_type: FileType::Archive,
+            is_scheduled: false,
+            max_connections: 4,
+            speed_limit_bps: None,
+            sha256_hash: None,
+            created_at: 123456789,
+            updated_at: 123456789,
+            completed_at: None,
+            download_type: DownloadType::Http(HttpMetadata {
+                primary_url: DownloadUrl::new("http://example.com/test.zip"),
+                mirror_urls: vec![],
+                resumable: true,
+                etag: None,
+                last_modified: None,
+                chunks: vec![],
+            }),
+        }
+    }
 
     #[test]
     fn test_download_item_serde() {
-        let item = DownloadItem {
-            id: 1,
-            filename: "ubuntu.iso".to_string(),
-            primary_url: DownloadUrl::new("https://example.com/ubuntu.iso"),
-            mirror_urls: vec![DownloadUrl::new("https://mirror.example.com/ubuntu.iso")],
-            save_path: "/home/user/Downloads".to_string(),
-            downloaded_bytes: 524_288_000,
-            total_bytes: Some(2_684_354_560),
-            state: DownloadState::Downloading {
-                downloaded_bytes: 524_288_000,
-                total_bytes: Some(2_684_354_560),
-                speed_bps: 5_242_880,
-                eta_secs: Some(300),
-            },
-            file_type: FileType::Archive,
-            resumable: true,
-            is_scheduled: true,
-            max_connections: 8,
-            speed_limit_bps: None,
-            etag: Some("\"test-etag-12345\"".to_string()),
-            last_modified: Some("Wed, 21 Oct 2025 07:28:00 GMT".to_string()),
-            sha256_hash: None,
-            chunks: Vec::new(),
-            created_at: 1700000000,
-            updated_at: 1700000010,
-            completed_at: None,
-        };
+        let item = get_test_item();
 
         let json = serde_json::to_string(&item).expect("Serialize item");
         let parsed: DownloadItem = serde_json::from_str(&json).expect("Deserialize item");
 
         assert_eq!(item.id, parsed.id);
         assert_eq!(item.filename, parsed.filename);
-        assert_eq!(item.primary_url.url, parsed.primary_url.url);
-        assert_eq!(item.mirror_urls.len(), 1);
+        let item_http = item.http_meta().unwrap();
+        let parsed_http = parsed.http_meta().unwrap();
+        assert_eq!(item_http.primary_url.url, parsed_http.primary_url.url);
+        assert_eq!(item_http.mirror_urls.len(), 0);
         assert_eq!(item.downloaded_bytes, parsed.downloaded_bytes);
         assert_eq!(item.total_bytes, parsed.total_bytes);
         assert_eq!(item.save_path, parsed.save_path);

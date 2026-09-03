@@ -4,9 +4,8 @@
 pub mod models;
 
 pub mod services {
-    pub mod downloads {
+    pub mod http {
         pub mod diagnostics;
-        pub mod download;
         pub mod engine;
         pub mod integrity;
         pub mod metadata;
@@ -16,8 +15,11 @@ pub mod services {
         pub mod worker;
         pub mod writer;
     }
-    pub mod network;
-    pub mod schedule;
+    pub mod torrent { pub mod engine; }
+    pub mod shared {
+        pub mod network;
+        pub mod schedule;
+    }
 }
 
 pub mod core {

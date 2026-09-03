@@ -29,3 +29,4 @@ sha2 = "0.10"
 thiserror = "2.0"
 rfd = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
+librqbit = "9.0.1"

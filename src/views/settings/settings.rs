@@ -10,6 +10,7 @@ pub enum SettingsTab {
     #[default]
     General,
     Downloads,
+    Torrents,
     Scheduler,
     Updates,
 }
@@ -39,6 +40,14 @@ fn default_max_threads() -> usize {
 
 fn default_max_retries() -> u32 {
     3
+}
+
+fn default_max_peers() -> usize {
+    50
+}
+
+fn default_listen_port() -> String {
+    "6881".to_string()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -141,6 +150,37 @@ pub struct SettingsModel {
     #[serde(default)]
     pub speed_limit_unit: SpeedUnit,
 
+    // Torrents Tab
+    #[serde(default = "default_true")]
+    pub torrent_enable_dht: bool,
+    #[serde(skip)]
+    pub torrent_enable_dht_anim: f32,
+
+    #[serde(default = "default_true")]
+    pub torrent_enable_upnp: bool,
+    #[serde(skip)]
+    pub torrent_enable_upnp_anim: f32,
+
+    #[serde(default = "default_max_peers")]
+    pub torrent_max_peers: usize,
+
+    #[serde(default = "default_true")]
+    pub torrent_play_media_while_downloading: bool,
+    #[serde(skip)]
+    pub torrent_play_media_while_downloading_anim: f32,
+
+    #[serde(default = "default_listen_port")]
+    pub torrent_listen_port: String,
+
+    #[serde(default)]
+    pub torrent_seed_ratio_limit: String,
+
+    #[serde(default)]
+    pub torrent_upload_limit_value: String,
+
+    #[serde(default)]
+    pub torrent_upload_limit_unit: SpeedUnit,
+
     // Scheduler Tab
     #[serde(default)]
     pub schedule: ScheduleConfig,
@@ -179,6 +219,18 @@ impl Default for SettingsModel {
             speed_limit_value: String::new(),
             speed_limit_unit: SpeedUnit::KBps,
 
+            torrent_enable_dht: true,
+            torrent_enable_dht_anim: 1.0,
+            torrent_enable_upnp: true,
+            torrent_enable_upnp_anim: 1.0,
+            torrent_max_peers: 50,
+            torrent_play_media_while_downloading: true,
+            torrent_play_media_while_downloading_anim: 1.0,
+            torrent_listen_port: "6881".to_string(),
+            torrent_seed_ratio_limit: String::new(),
+            torrent_upload_limit_value: String::new(),
+            torrent_upload_limit_unit: SpeedUnit::KBps,
+
             schedule: ScheduleConfig::default(),
             schedule_subtab: ScheduleSubTab::Settings,
 
@@ -207,6 +259,9 @@ impl SettingsModel {
         self.minimize_to_tray_anim = if self.minimize_to_tray { 1.0 } else { 0.0 };
         self.show_notifications_anim = if self.show_notifications { 1.0 } else { 0.0 };
         self.auto_retry_downloads_anim = if self.auto_retry_downloads { 1.0 } else { 0.0 };
+        self.torrent_enable_dht_anim = if self.torrent_enable_dht { 1.0 } else { 0.0 };
+        self.torrent_enable_upnp_anim = if self.torrent_enable_upnp { 1.0 } else { 0.0 };
+        self.torrent_play_media_while_downloading_anim = if self.torrent_play_media_while_downloading { 1.0 } else { 0.0 };
         self.schedule.enabled_anim = if self.schedule.enabled { 1.0 } else { 0.0 };
         self.schedule.stop_enabled_anim = if self.schedule.stop_enabled { 1.0 } else { 0.0 };
         self.schedule.prioritize_scheduled_anim = if self.schedule.prioritize_scheduled { 1.0 } else { 0.0 };
@@ -218,6 +273,9 @@ impl SettingsModel {
         let target_tray = if self.minimize_to_tray { 1.0 } else { 0.0 };
         let target_notify = if self.show_notifications { 1.0 } else { 0.0 };
         let target_retry = if self.auto_retry_downloads { 1.0 } else { 0.0 };
+        let target_torrent_dht = if self.torrent_enable_dht { 1.0 } else { 0.0 };
+        let target_torrent_upnp = if self.torrent_enable_upnp { 1.0 } else { 0.0 };
+        let target_torrent_media = if self.torrent_play_media_while_downloading { 1.0 } else { 0.0 };
         let target_sched = if self.schedule.enabled { 1.0 } else { 0.0 };
         let target_sched_stop = if self.schedule.stop_enabled { 1.0 } else { 0.0 };
         let target_sched_priority = if self.schedule.prioritize_scheduled { 1.0 } else { 0.0 };
@@ -227,6 +285,9 @@ impl SettingsModel {
             || (self.minimize_to_tray_anim - target_tray).abs() > 0.005
             || (self.show_notifications_anim - target_notify).abs() > 0.005
             || (self.auto_retry_downloads_anim - target_retry).abs() > 0.005
+            || (self.torrent_enable_dht_anim - target_torrent_dht).abs() > 0.005
+            || (self.torrent_enable_upnp_anim - target_torrent_upnp).abs() > 0.005
+            || (self.torrent_play_media_while_downloading_anim - target_torrent_media).abs() > 0.005
             || (self.schedule.enabled_anim - target_sched).abs() > 0.005
             || (self.schedule.stop_enabled_anim - target_sched_stop).abs() > 0.005
             || (self.schedule.prioritize_scheduled_anim - target_sched_priority).abs() > 0.005
@@ -238,6 +299,9 @@ impl SettingsModel {
         let target_tray = if self.minimize_to_tray { 1.0 } else { 0.0 };
         let target_notify = if self.show_notifications { 1.0 } else { 0.0 };
         let target_retry = if self.auto_retry_downloads { 1.0 } else { 0.0 };
+        let target_torrent_dht = if self.torrent_enable_dht { 1.0 } else { 0.0 };
+        let target_torrent_upnp = if self.torrent_enable_upnp { 1.0 } else { 0.0 };
+        let target_torrent_media = if self.torrent_play_media_while_downloading { 1.0 } else { 0.0 };
         let target_sched = if self.schedule.enabled { 1.0 } else { 0.0 };
         let target_sched_stop = if self.schedule.stop_enabled { 1.0 } else { 0.0 };
         let target_sched_priority = if self.schedule.prioritize_scheduled { 1.0 } else { 0.0 };
@@ -247,6 +311,9 @@ impl SettingsModel {
         self.minimize_to_tray_anim += (target_tray - self.minimize_to_tray_anim) * 0.35;
         self.show_notifications_anim += (target_notify - self.show_notifications_anim) * 0.35;
         self.auto_retry_downloads_anim += (target_retry - self.auto_retry_downloads_anim) * 0.35;
+        self.torrent_enable_dht_anim += (target_torrent_dht - self.torrent_enable_dht_anim) * 0.35;
+        self.torrent_enable_upnp_anim += (target_torrent_upnp - self.torrent_enable_upnp_anim) * 0.35;
+        self.torrent_play_media_while_downloading_anim += (target_torrent_media - self.torrent_play_media_while_downloading_anim) * 0.35;
         self.schedule.enabled_anim += (target_sched - self.schedule.enabled_anim) * 0.35;
         self.schedule.stop_enabled_anim += (target_sched_stop - self.schedule.stop_enabled_anim) * 0.35;
         self.schedule.prioritize_scheduled_anim += (target_sched_priority - self.schedule.prioritize_scheduled_anim) * 0.35;
@@ -263,6 +330,15 @@ impl SettingsModel {
         }
         if (self.auto_retry_downloads_anim - target_retry).abs() < 0.005 {
             self.auto_retry_downloads_anim = target_retry;
+        }
+        if (self.torrent_enable_dht_anim - target_torrent_dht).abs() < 0.005 {
+            self.torrent_enable_dht_anim = target_torrent_dht;
+        }
+        if (self.torrent_enable_upnp_anim - target_torrent_upnp).abs() < 0.005 {
+            self.torrent_enable_upnp_anim = target_torrent_upnp;
+        }
+        if (self.torrent_play_media_while_downloading_anim - target_torrent_media).abs() < 0.005 {
+            self.torrent_play_media_while_downloading_anim = target_torrent_media;
         }
         if (self.schedule.enabled_anim - target_sched).abs() < 0.005 {
             self.schedule.enabled_anim = target_sched;
@@ -305,6 +381,17 @@ pub enum SettingsMessage {
     MaxAutoRetriesInc,
     SpeedLimitValueChanged(String),
     SpeedLimitUnitChanged(SpeedUnit),
+
+    // Torrents Tab
+    ToggleTorrentDht(bool),
+    ToggleTorrentUpnp(bool),
+    ToggleTorrentPlayMedia(bool),
+    TorrentMaxPeersDec,
+    TorrentMaxPeersInc,
+    TorrentListenPortChanged(String),
+    TorrentSeedRatioLimitChanged(String),
+    TorrentUploadLimitValueChanged(String),
+    TorrentUploadLimitUnitChanged(SpeedUnit),
 
     // Scheduler Tab
     ScheduleSubTabSelected(ScheduleSubTab),
@@ -408,6 +495,31 @@ pub fn update(model: &mut SettingsModel, message: SettingsMessage) {
         }
         SettingsMessage::SpeedLimitUnitChanged(unit) => model.speed_limit_unit = unit,
 
+        // Torrents Tab Handlers
+        SettingsMessage::ToggleTorrentDht(val) => model.torrent_enable_dht = val,
+        SettingsMessage::ToggleTorrentUpnp(val) => model.torrent_enable_upnp = val,
+        SettingsMessage::ToggleTorrentPlayMedia(val) => model.torrent_play_media_while_downloading = val,
+        SettingsMessage::TorrentMaxPeersDec => {
+            if model.torrent_max_peers > 5 {
+                model.torrent_max_peers -= 5;
+            }
+        }
+        SettingsMessage::TorrentMaxPeersInc => {
+            if model.torrent_max_peers < 200 {
+                model.torrent_max_peers += 5;
+            }
+        }
+        SettingsMessage::TorrentListenPortChanged(val) => {
+            model.torrent_listen_port = val.chars().filter(|c| c.is_ascii_digit()).collect();
+        }
+        SettingsMessage::TorrentSeedRatioLimitChanged(val) => {
+            model.torrent_seed_ratio_limit = val.chars().filter(|c| c.is_ascii_digit() || *c == '.').collect();
+        }
+        SettingsMessage::TorrentUploadLimitValueChanged(val) => {
+            model.torrent_upload_limit_value = val.chars().filter(|c| c.is_ascii_digit()).collect();
+        }
+        SettingsMessage::TorrentUploadLimitUnitChanged(unit) => model.torrent_upload_limit_unit = unit,
+
         // Scheduler Tab Handlers
         SettingsMessage::ScheduleSubTabSelected(subtab) => model.schedule_subtab = subtab,
         SettingsMessage::ToggleScheduleEnabled(val) => model.schedule.enabled = val,
@@ -432,7 +544,7 @@ pub fn update(model: &mut SettingsModel, message: SettingsMessage) {
     }
 
     // Auto-save changes immediately to JSON storage
-    let _ = crate::services::storage::json_store::save_settings(model);
+    let _ = crate::services::shared::storage::json_store::save_settings(model);
 }
 
 pub fn settings_view<'a>(
@@ -442,6 +554,7 @@ pub fn settings_view<'a>(
     let tabs_row = row![
         tab_item("General", SettingsTab::General, model.active_tab),
         tab_item("Downloads", SettingsTab::Downloads, model.active_tab),
+        tab_item("Torrents", SettingsTab::Torrents, model.active_tab),
         tab_item("Scheduler", SettingsTab::Scheduler, model.active_tab),
         tab_item("Updates", SettingsTab::Updates, model.active_tab),
     ]
@@ -461,6 +574,7 @@ pub fn settings_view<'a>(
     let tab_content: Element<SettingsMessage> = match model.active_tab {
         SettingsTab::General => tabs::general::view(model),
         SettingsTab::Downloads => tabs::downloads::view(model),
+        SettingsTab::Torrents => tabs::torrents::view(model),
         SettingsTab::Scheduler => tabs::scheduler::view(model, downloads),
         SettingsTab::Updates => tabs::updates::view(model),
     };

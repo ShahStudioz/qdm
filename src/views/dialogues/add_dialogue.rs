@@ -1,7 +1,6 @@
 use crate::core::utils::paths;
 use crate::icons::{self, icon};
 use crate::models::download::format_bytes;
-use crate::services::downloads::download::{DownloadFileMetaData, DownloadService};
 use crate::theme::{colors, styles};
 use iced::widget::{button, column, container, pick_list, row, text, text_input, Space};
 use iced::{Alignment, Element, Length, Task};
@@ -27,10 +26,11 @@ pub struct AddDialogModel {
     pub speed_limit: String,
     pub speed_unit: SpeedUnit,
     pub mirror_urls_text: String,
-    pub downloader: DownloadService,
+    pub engine: Option<crate::services::engine::AppEngine>,
     pub has_error: bool,
     pub error: String,
-    pub download_file_metadata: Option<DownloadFileMetaData>,
+    pub probe_result: Option<crate::services::engine::ProbeResult>,
+    pub selected_files: std::collections::HashSet<usize>,
 }
 
 impl Default for AddDialogModel {
@@ -46,10 +46,11 @@ impl Default for AddDialogModel {
             speed_limit: String::new(),
             speed_unit: SpeedUnit::KBps,
             mirror_urls_text: String::new(),
-            downloader: DownloadService::default(),
+            engine: None,
             has_error: false,
             error: String::new(),
-            download_file_metadata: None,
+            probe_result: None,
+            selected_files: std::collections::HashSet::new(),
         }
     }
 }
@@ -62,7 +63,8 @@ impl AddDialogModel {
         self.save_to = paths::get_default_download_dir();
         self.has_error = false;
         self.error.clear();
-        self.download_file_metadata = None;
+        self.probe_result = None;
+        self.selected_files.clear();
         self.is_advanced_expanded = false;
         self.mirror_urls_text.clear();
     }
@@ -213,50 +215,108 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
         }
         AddDialogStep::DownloadDetails => {
             let metadata_summary: Element<AddDialogueModalMessage> =
-                if let Some(ref meta) = state.download_file_metadata {
-                    let size_str = meta
-                        .content_length
-                        .map(format_bytes)
-                        .unwrap_or_else(|| "Unknown size".to_string());
+                if let Some(ref probe) = state.probe_result {
+                    match probe {
+                        crate::services::engine::ProbeResult::Http(meta) => {
+                            let size_str = meta
+                                .content_length
+                                .map(format_bytes)
+                                .unwrap_or_else(|| "Unknown size".to_string());
 
-                    let resume_str = if meta.supports_resume {
-                        "Resume: Supported"
-                    } else {
-                        "Resume: Not supported"
-                    };
-
-                    let type_str = meta.content_type.as_deref().unwrap_or("Unknown type");
-
-                    container(
-                        row![
-                            text(format!("Size: {}", size_str))
-                                .size(12)
-                                .font(styles::BOLD_FONT)
-                                .color(colors::TEXT_PRIMARY),
-                            text("|").size(12).color(colors::TEXT_MUTED),
-                            text(resume_str).size(12).color(if meta.supports_resume {
-                                colors::SUCCESS
+                            let resume_str = if meta.supports_resume {
+                                "Resume: Supported"
                             } else {
-                                colors::TEXT_MUTED
-                            }),
-                            text("|").size(12).color(colors::TEXT_MUTED),
-                            text(type_str).size(12).color(colors::TEXT_MUTED),
-                        ]
-                        .spacing(10)
-                        .align_y(Alignment::Center),
-                    )
-                    .padding([8, 12])
-                    .width(Length::Fill)
-                    .style(|_| container::Style {
-                        background: Some(iced::Background::Color(colors::SURFACE_HIGH)),
-                        border: iced::Border {
-                            color: colors::BORDER,
-                            width: 1.0,
-                            radius: 6.0.into(),
-                        },
-                        ..Default::default()
-                    })
-                    .into()
+                                "Resume: Not supported"
+                            };
+
+                            let type_str = meta.content_type.as_deref().unwrap_or("Unknown type");
+
+                            container(
+                                row![
+                                    text(format!("Size: {}", size_str))
+                                        .size(12)
+                                        .font(styles::BOLD_FONT)
+                                        .color(colors::TEXT_PRIMARY),
+                                    text("|").size(12).color(colors::TEXT_MUTED),
+                                    text(resume_str).size(12).color(if meta.supports_resume {
+                                        colors::SUCCESS
+                                    } else {
+                                        colors::TEXT_MUTED
+                                    }),
+                                    text("|").size(12).color(colors::TEXT_MUTED),
+                                    text(type_str).size(12).color(colors::TEXT_MUTED),
+                                ]
+                                .spacing(10)
+                                .align_y(Alignment::Center),
+                            )
+                            .padding([8, 12])
+                            .width(Length::Fill)
+                            .style(|_| container::Style {
+                                background: Some(iced::Background::Color(colors::SURFACE_HIGH)),
+                                border: iced::Border {
+                                    color: colors::BORDER,
+                                    width: 1.0,
+                                    radius: 6.0.into(),
+                                },
+                                ..Default::default()
+                            })
+                            .into()
+                        }
+                        crate::services::engine::ProbeResult::Torrent(info) => {
+                            let total_size: u64 = info.files.iter().map(|f| f.size).sum();
+                            let file_count = info.files.len();
+                            let selected_count = state.selected_files.len();
+
+                            let mut file_list = column![].spacing(4);
+                            for file in &info.files {
+                                let is_selected = state.selected_files.contains(&file.id);
+                                let file_row = row![
+                                    iced::widget::checkbox("", is_selected)
+                                        .on_toggle({
+                                            let id = file.id;
+                                            move |_| AddDialogueModalMessage::ToggleFileSelection(id)
+                                        }),
+                                    text(&file.path).size(12).color(colors::TEXT_PRIMARY).width(Length::Fill),
+                                    text(format_bytes(file.size)).size(11).color(colors::TEXT_MUTED),
+                                ]
+                                .spacing(8)
+                                .align_y(Alignment::Center);
+                                file_list = file_list.push(file_row);
+                            }
+
+                            let scrollable_files = iced::widget::scrollable(file_list)
+                                .height(Length::Fixed(150.0))
+                                .width(Length::Fill);
+
+                            container(
+                                column![
+                                    row![
+                                        text(format!("Torrent: {} files ({} selected)", file_count, selected_count))
+                                            .size(12)
+                                            .font(styles::BOLD_FONT)
+                                            .color(colors::TEXT_PRIMARY),
+                                        Space::with_width(Length::Fill),
+                                        text(format!("Total: {}", format_bytes(total_size))).size(12).color(colors::TEXT_MUTED),
+                                    ]
+                                    .align_y(Alignment::Center),
+                                    Space::with_height(8),
+                                    scrollable_files
+                                ]
+                            )
+                            .padding([8, 12])
+                            .width(Length::Fill)
+                            .style(|_| container::Style {
+                                background: Some(iced::Background::Color(colors::SURFACE_HIGH)),
+                                border: iced::Border {
+                                    color: colors::BORDER,
+                                    width: 1.0,
+                                    radius: 6.0.into(),
+                                },
+                                ..Default::default()
+                            })
+                            .into()
+                        }
+                    }
                 } else {
                     Space::with_height(0).into()
                 };
@@ -269,9 +329,16 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                 .style(styles::dark_input_style);
             let url_group = column![url_label, url_input].spacing(4);
 
-            let filename_label = form_label("FILENAME");
+            let is_torrent_folder = matches!(
+                state.probe_result,
+                Some(crate::services::engine::ProbeResult::Torrent(ref info)) if info.is_folder
+            );
+            let filename_label = form_label(if is_torrent_folder { "FOLDER NAME" } else { "FILENAME" });
             let wand_icon = icon(icons::ICON_WAND).size(14).color(colors::PRIMARY);
-            let filename_widget = text_input("file.zip", &state.filename)
+            let filename_widget = text_input(
+                    if is_torrent_folder { "Folder Name" } else { "file.zip" },
+                    &state.filename,
+                )
                 .on_input(AddDialogueModalMessage::AddFilenameChanged)
                 .padding([10, 12])
                 .width(Length::Fill)
@@ -294,16 +361,22 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
             });
             let filename_group = column![filename_label, filename_box].spacing(6);
 
-            let file_exists = crate::core::utils::paths::file_exists_or_downloading(
-                &state.save_to,
-                &state.filename,
-            );
+            let has_conflict = if is_torrent_folder {
+                crate::core::utils::paths::folder_exists(&state.save_to, &state.filename)
+            } else {
+                crate::core::utils::paths::file_exists_or_downloading(&state.save_to, &state.filename)
+            };
+            let collision_warning_text = if is_torrent_folder {
+                "Folder with this name already exists in destination."
+            } else {
+                "File with this name already exists in destination."
+            };
             let collision_warning: Element<AddDialogueModalMessage> =
-                if file_exists && !state.filename.trim().is_empty() {
+                if has_conflict && !state.filename.trim().is_empty() {
                     container(
                         row![
                             icon(icons::ICON_WARN).size(14).color(colors::WARNING),
-                            text("File with this name already exists in destination.")
+                            text(collision_warning_text)
                                 .size(12)
                                 .color(colors::WARNING)
                                 .width(Length::Fill),
@@ -365,9 +438,20 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                 icons::ICON_CHEVRON_DOWN
             };
 
+            let is_torrent = match &state.probe_result {
+                Some(crate::services::engine::ProbeResult::Torrent(_)) => true,
+                _ => state.url.starts_with("magnet:") || state.url.ends_with(".torrent"),
+            };
+
+            let advanced_header_text = if is_torrent {
+                "Advanced Options"
+            } else {
+                "Advanced Options & Mirrors"
+            };
+
             let advanced_header_btn = button(
                 row![
-                    text("Advanced Options & Mirrors")
+                    text(advanced_header_text)
                         .size(13)
                         .color(colors::TEXT_PRIMARY),
                     Space::with_width(Length::Fill),
@@ -380,17 +464,6 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
             .on_press(AddDialogueModalMessage::ToggleAdvancedOptions);
 
             let advanced_content: Element<AddDialogueModalMessage> = if state.is_advanced_expanded {
-                let max_conn_label = form_label("MAX CONNECTIONS");
-                let max_conn_input = text_input("8", &state.max_connections)
-                    .on_input(AddDialogueModalMessage::AddMaxConnectionsChanged)
-                    .padding([10, 12])
-                    .width(Length::Fill)
-                    .style(styles::dark_input_style);
-
-                let max_conn_col = column![max_conn_label, max_conn_input]
-                    .spacing(6)
-                    .width(Length::FillPortion(1));
-
                 let speed_limit_label = form_label("SPEED LIMIT");
                 let speed_limit_input = text_input("Unlimited", &state.speed_limit)
                     .on_input(AddDialogueModalMessage::AddSpeedLimitChanged)
@@ -416,27 +489,46 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                     .spacing(6)
                     .width(Length::FillPortion(1));
 
-                let conn_speed_row = row![max_conn_col, speed_limit_col].spacing(16);
+                if is_torrent {
+                    column![
+                        speed_limit_col
+                    ]
+                    .spacing(6)
+                    .into()
+                } else {
+                    let max_conn_label = form_label("MAX CONNECTIONS");
+                    let max_conn_input = text_input("8", &state.max_connections)
+                        .on_input(AddDialogueModalMessage::AddMaxConnectionsChanged)
+                        .padding([10, 12])
+                        .width(Length::Fill)
+                        .style(styles::dark_input_style);
 
-                let mirrors_label =
-                    form_label("OPTIONAL MIRROR LINKS (COMMA OR NEWLINE SEPARATED)");
-                let mirrors_input = text_input(
-                    "https://mirror1.example.com/file.zip, https://mirror2...",
-                    &state.mirror_urls_text,
-                )
-                .on_input(AddDialogueModalMessage::AddMirrorUrlsChanged)
-                .padding([10, 12])
-                .width(Length::Fill)
-                .style(styles::dark_input_style);
+                    let max_conn_col = column![max_conn_label, max_conn_input]
+                        .spacing(6)
+                        .width(Length::FillPortion(1));
+                    
+                    let conn_speed_row = row![max_conn_col, speed_limit_col].spacing(16);
 
-                column![
-                    conn_speed_row,
-                    Space::with_height(6),
-                    mirrors_label,
-                    mirrors_input
-                ]
-                .spacing(6)
-                .into()
+                    let mirrors_label =
+                        form_label("OPTIONAL MIRROR LINKS (COMMA OR NEWLINE SEPARATED)");
+                    let mirrors_input = text_input(
+                        "https://mirror1.example.com/file.zip, https://mirror2...",
+                        &state.mirror_urls_text,
+                    )
+                    .on_input(AddDialogueModalMessage::AddMirrorUrlsChanged)
+                    .padding([10, 12])
+                    .width(Length::Fill)
+                    .style(styles::dark_input_style);
+
+                    column![
+                        conn_speed_row,
+                        Space::with_height(6),
+                        mirrors_label,
+                        mirrors_input
+                    ]
+                    .spacing(6)
+                    .into()
+                }
             } else {
                 Space::with_height(0).into()
             };
@@ -633,7 +725,8 @@ pub enum AddDialogueModalMessage {
     ClipboardContentRead(Option<String>),
     AddUrlChanged(String),
     FetchFileInfoPressed,
-    FileMetaDataFetched(Result<DownloadFileMetaData, String>),
+    FileMetaDataFetched(Result<crate::services::engine::ProbeResult, String>),
+    ToggleFileSelection(usize),
     AddFilenameChanged(String),
     AutoRenameFilename,
     AddSaveToChanged(String),
@@ -681,25 +774,34 @@ pub fn update(
             if url.is_empty() {
                 state.has_error = true;
                 state.error = "Please enter a valid download URL".to_string();
-            } else if !url.starts_with("http://") && !url.starts_with("https://") {
+            } else if !url.starts_with("http://") && !url.starts_with("https://") && !url.starts_with("magnet:") {
                 state.has_error = true;
-                state.error = "URL must start with http:// or https://".to_string();
+                state.error = "URL must start with http://, https://, or magnet:".to_string();
             } else {
                 state.step = AddDialogStep::FetchingInfo;
                 state.has_error = false;
                 state.error.clear();
 
-                let downloader = state.downloader.clone();
-                let task = async move { downloader.get_file_meta_data(&url).await };
-                return Task::perform(task, AddDialogueModalMessage::FileMetaDataFetched);
+                if let Some(engine) = state.engine.clone() {
+                    let task = async move { engine.probe_metadata(&url).await };
+                    return Task::perform(task, AddDialogueModalMessage::FileMetaDataFetched);
+                }
             }
         }
         AddDialogueModalMessage::FileMetaDataFetched(meta_res) => match meta_res {
             Ok(data) => {
-                let extracted_name =
-                    extract_filename(&state.url, data.content_disposition.as_deref());
-                state.filename = extracted_name;
-                state.download_file_metadata = Some(data);
+                match &data {
+                    crate::services::engine::ProbeResult::Http(http_meta) => {
+                        let extracted_name =
+                            extract_filename(&state.url, http_meta.content_disposition.as_deref());
+                        state.filename = extracted_name;
+                    }
+                    crate::services::engine::ProbeResult::Torrent(info) => {
+                        state.filename = info.name.clone();
+                        state.selected_files = info.files.iter().map(|f| f.id).collect();
+                    }
+                }
+                state.probe_result = Some(data);
                 state.step = AddDialogStep::DownloadDetails;
                 state.has_error = false;
                 state.error.clear();
@@ -752,6 +854,13 @@ pub fn update(
         }
         AddDialogueModalMessage::AddMirrorUrlsChanged(val) => {
             state.mirror_urls_text = val;
+        }
+        AddDialogueModalMessage::ToggleFileSelection(id) => {
+            if state.selected_files.contains(&id) {
+                state.selected_files.remove(&id);
+            } else {
+                state.selected_files.insert(id);
+            }
         }
         AddDialogueModalMessage::QuickAddDownload
         | AddDialogueModalMessage::SubmitNewDownload

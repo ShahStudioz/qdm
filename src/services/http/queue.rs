@@ -46,7 +46,7 @@ impl QueueService {
                     }
                 }
                 // ONLY preempt if resumable. Non-resumable downloads must keep running!
-                if item.resumable {
+                if item.http_meta().map(|h| h.resumable).unwrap_or(false) {
                     item.state = DownloadState::Queued;
                     action.to_pause.push(item.id);
                     preempted += 1;
@@ -154,7 +154,7 @@ impl QueueService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::download::{DownloadUrl, FileType};
+    use crate::models::download::{DownloadType, DownloadUrl, FileType, HttpMetadata};
 
     fn make_test_item(
         id: usize,
@@ -165,24 +165,26 @@ mod tests {
         DownloadItem {
             id,
             filename: format!("file_{}.zip", id),
-            primary_url: DownloadUrl::new("http://example.com"),
-            mirror_urls: vec![],
             save_path: "/tmp".to_string(),
             downloaded_bytes: 0,
             total_bytes: Some(1000),
             state,
             file_type: FileType::Archive,
-            resumable,
             is_scheduled,
-            max_connections: 4,
+            max_connections: 8,
             speed_limit_bps: None,
-            etag: None,
-            last_modified: None,
             sha256_hash: None,
-            chunks: vec![],
             created_at: id as u64 * 100,
             updated_at: 0,
             completed_at: None,
+            download_type: DownloadType::Http(HttpMetadata {
+                primary_url: DownloadUrl::new("http://example.com"),
+                mirror_urls: vec![],
+                resumable,
+                etag: None,
+                last_modified: None,
+                chunks: vec![],
+            }),
         }
     }
 

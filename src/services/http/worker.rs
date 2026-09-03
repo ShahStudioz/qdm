@@ -19,10 +19,10 @@ use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 
 use crate::models::download::ChunkState;
-use crate::services::downloads::diagnostics::{DiagEvent, DiagSender};
-use crate::services::downloads::throttler::Throttler;
-use crate::services::downloads::writer::PositionalWriter;
-use crate::services::network::connectivity::ConnectivityMonitor;
+use crate::services::http::diagnostics::{DiagEvent, DiagSender};
+use crate::services::http::throttler::Throttler;
+use crate::services::http::writer::PositionalWriter;
+use crate::services::shared::network::connectivity::ConnectivityMonitor;
 
 /// Events reported by individual chunk workers back to the download task controller.
 #[derive(Debug)]

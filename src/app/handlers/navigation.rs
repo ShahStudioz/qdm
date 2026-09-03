@@ -38,6 +38,7 @@ pub(crate) fn handle_add_url_pressed(app: &mut QdmApp) -> Task<Message> {
         app.add_dialog.speed_limit = app.settings.speed_limit_value.clone();
         app.add_dialog.speed_unit = app.settings.speed_limit_unit;
     }
+    app.add_dialog.engine = Some(app.engine.clone());
     app.add_dialog.is_open = true;
     Task::none()
 }
@@ -77,9 +78,10 @@ pub(crate) fn handle_downloads_loaded(
                 if matches!(item.state, DownloadState::Downloading { .. }) {
                     let item_clone = item.clone();
                     let engine = app.engine.clone();
+                    let play_media = app.settings.torrent_play_media_while_downloading;
                     auto_resume_tasks.push(Task::perform(
                         async move {
-                            engine.start_or_resume(item_clone).await;
+                            engine.start_or_resume(item_clone, play_media).await;
                             Ok(())
                         },
                         |_: Result<(), String>| Message::Tick,
@@ -148,9 +150,37 @@ pub(crate) fn handle_settings_message(
         | settings::SettingsMessage::SimultaneousDownloadsDec => {
             settings::update(
                 &mut app.settings,
-                settings::SettingsMessage::SimultaneousDownloadsInc,
+                msg,
             );
             app.synchronize_and_persist_queue()
+        }
+
+        // Torrent play media toggle requires restarting active torrents
+        // so their files can be moved in/out of staging dynamically
+        settings::SettingsMessage::ToggleTorrentPlayMedia(val) => {
+            settings::update(&mut app.settings, settings::SettingsMessage::ToggleTorrentPlayMedia(val));
+            
+            // Queue active torrents for restart
+            let mut tasks = Vec::new();
+            for item in app.downloads.iter() {
+                if matches!(item.state, crate::models::download::DownloadState::Downloading { .. }) {
+                    if let crate::models::download::DownloadType::Torrent(_) = item.download_type {
+                        let id = item.id;
+                        let engine = app.engine.clone();
+                        let item_clone = item.clone();
+                        let play_media = app.settings.torrent_play_media_while_downloading;
+                        tasks.push(Task::perform(
+                            async move {
+                                engine.pause(id).await;
+                                engine.start_or_resume(item_clone, play_media).await;
+                                Ok(())
+                            },
+                            |_: Result<(), String>| Message::Tick,
+                        ));
+                    }
+                }
+            }
+            Task::batch(tasks)
         }
 
         // All other settings messages are handled generically

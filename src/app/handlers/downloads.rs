@@ -4,10 +4,9 @@
 //! mirror modal opening, and post-save/metadata-fetch lifecycle logic.
 
 use crate::app::{Message, QdmApp};
-use crate::models::download::{DownloadItem, DownloadState, FileType};
-use crate::services::downloads::FileMetadata;
-use crate::services::storage;
-use crate::views::dialogues::{add_dialogue, delete_dialogue};
+use crate::models::download::{DownloadItem, DownloadState};
+use crate::services::shared::storage;
+use crate::views::dialogues::delete_dialogue;
 use crate::views::settings::settings;
 use iced::Task;
 
@@ -56,9 +55,10 @@ pub(crate) fn handle_toggle_pause(app: &mut QdmApp, id: usize) -> Task<Message> 
                 };
                 let item_clone = item.clone();
                 let engine = app.engine.clone();
+                let play_media = app.settings.torrent_play_media_while_downloading;
                 let start_task = Task::perform(
                     async move {
-                        engine.start_or_resume(item_clone).await;
+                        engine.start_or_resume(item_clone, play_media).await;
                         Ok(())
                     },
                     |_: Result<(), String>| Message::Tick,
@@ -80,9 +80,10 @@ pub(crate) fn handle_toggle_pause(app: &mut QdmApp, id: usize) -> Task<Message> 
                 };
                 let item_clone = item.clone();
                 let engine = app.engine.clone();
+                let play_media = app.settings.torrent_play_media_while_downloading;
                 let start_task = Task::perform(
                     async move {
-                        engine.start_or_resume(item_clone).await;
+                        engine.start_or_resume(item_clone, play_media).await;
                         Ok(())
                     },
                     |_: Result<(), String>| Message::Tick,
@@ -112,15 +113,22 @@ pub(crate) fn handle_cancel_download(app: &mut QdmApp, id: usize) -> Task<Messag
                 engine.cancel(id).await;
                 if action == settings::DeleteAction::DeleteFromDisk {
                     if let Some(item) = item_opt {
-                        let target =
-                            std::path::Path::new(&item.save_path).join(&item.filename);
+                        let target = std::path::Path::new(&item.save_path)
+                            .join(&item.filename);
                         let temp_target = std::path::Path::new(&item.save_path)
                             .join(format!("{}.qdmdownload", item.filename));
-                        if target.exists() {
-                            let _ = std::fs::remove_file(target);
-                        }
-                        if temp_target.exists() {
-                            let _ = std::fs::remove_file(temp_target);
+                        let staging_dir = std::path::Path::new(&item.save_path)
+                            .join(format!(".qdmdownload_{}", item.id));
+                            
+                        let paths_to_remove = [target, temp_target, staging_dir];
+                        for path in &paths_to_remove {
+                            if path.exists() {
+                                if path.is_dir() {
+                                    let _ = std::fs::remove_dir_all(path);
+                                } else {
+                                    let _ = std::fs::remove_file(path);
+                                }
+                            }
                         }
                     }
                 }
@@ -169,14 +177,25 @@ pub(crate) fn handle_open_folder(app: &mut QdmApp, id: usize) -> Task<Message> {
     Task::none()
 }
 
+/// Copies the download URL to clipboard and marks the item as recently copied
+/// so the UI can flash a checkmark icon for 2 seconds.
+pub(crate) fn handle_copy_link(app: &mut QdmApp, id: usize) -> Task<Message> {
+    if let Some(item) = app.downloads.iter().find(|d| d.id == id) {
+        let url = item.get_url().to_string();
+        app.copied_link_ids.insert(id);
+        return iced::clipboard::write(url).map(|_: ()| Message::Tick);
+    }
+    Task::none()
+}
+
 /// Opens the mirror management dialog for a download.
 pub(crate) fn handle_open_mirrors_modal(app: &mut QdmApp, id: usize) -> Task<Message> {
     if let Some(item) = app.downloads.iter().find(|d| d.id == id) {
         app.mirror_dialog.open(
             item.id,
             item.filename.clone(),
-            item.primary_url.clone(),
-            item.mirror_urls.clone(),
+            item.http_meta().unwrap().primary_url.clone(),
+            item.http_meta().unwrap().mirror_urls.clone(),
         );
     }
     Task::none()
@@ -191,7 +210,7 @@ pub(crate) fn handle_download_saved(
     match result {
         Ok(inserted_item) => {
             let item_id = inserted_item.id;
-            let url = inserted_item.primary_url.url.clone();
+            let url = inserted_item.get_url().to_string();
             let is_scheduled = inserted_item.is_scheduled;
             let needs_bg_meta = matches!(inserted_item.state, DownloadState::FetchingMetadata)
                 || (inserted_item.total_bytes.is_none() && !is_scheduled);
@@ -211,6 +230,22 @@ pub(crate) fn handle_download_saved(
                     async move { (item_id, engine.probe_metadata(&url).await) },
                     |(id, res)| Message::BackgroundMetadataFetched(id, res),
                 );
+            } else if matches!(inserted_item.state, DownloadState::Downloading { .. }) {
+                // Item already has metadata (e.g. torrent via "Inspect and Configure").
+                // The queue sync won't start it because it thinks it's already running.
+                // We must explicitly kick off the engine.
+                let item_clone = inserted_item.clone();
+                let engine = app.engine.clone();
+                let play_media = app.settings.torrent_play_media_while_downloading;
+                let start_task = Task::perform(
+                    async move {
+                        engine.start_or_resume(item_clone, play_media).await;
+                        Ok(())
+                    },
+                    |_: Result<(), String>| Message::Tick,
+                );
+                let sync_task = app.synchronize_and_persist_queue();
+                return Task::batch([start_task, sync_task]);
             } else {
                 return app.synchronize_and_persist_queue();
             }
@@ -227,31 +262,46 @@ pub(crate) fn handle_download_saved(
 pub(crate) fn handle_background_metadata_fetched(
     app: &mut QdmApp,
     id: usize,
-    result: Result<FileMetadata, String>,
+    result: Result<crate::services::engine::ProbeResult, String>,
 ) -> Task<Message> {
     if let Some(item) = app.downloads.iter_mut().find(|d| d.id == id) {
         match result {
-            Ok(meta) => {
-                if let Some(len) = meta.content_length {
-                    item.total_bytes = Some(len);
-                }
-                item.resumable = meta.supports_resume;
-                item.etag = meta.etag;
-                item.last_modified = meta.last_modified;
+            Ok(probe) => {
+                match probe {
+                    crate::services::engine::ProbeResult::Http(meta) => {
+                        if let Some(len) = meta.content_length {
+                            item.total_bytes = Some(len);
+                        }
+                        if let Some(http) = item.http_meta_mut() {
+                            http.resumable = meta.supports_resume;
+                            http.etag = meta.etag;
+                            http.last_modified = meta.last_modified;
+                        }
 
-                // Try to improve generic filenames using Content-Disposition
-                if item.filename == "download.file" {
-                    if let Some(ref cd) = meta.content_disposition {
-                        let better_name =
-                            add_dialogue::extract_filename(&item.primary_url.url, Some(cd));
-                        if better_name != "download.file" {
-                            item.filename = better_name;
-                            item.file_type = FileType::from_filename(&item.filename);
+                        // Try to improve generic filenames using Content-Disposition
+                        if item.filename == "download.file" {
+                            if let Some(ref cd) = meta.content_disposition {
+                                let better_name =
+                                    crate::views::dialogues::add_dialogue::extract_filename(item.get_url(), Some(cd));
+                                if better_name != "download.file" {
+                                    item.filename = better_name;
+                                    item.file_type = crate::models::download::FileType::from_filename(&item.filename);
+                                }
+                            }
+                        }
+                    }
+                    crate::services::engine::ProbeResult::Torrent(info) => {
+                        item.filename = info.name;
+                        let total_size: u64 = info.files.iter().map(|f| f.size).sum();
+                        item.total_bytes = Some(total_size);
+                        if let Some(tmeta) = item.torrent_meta_mut() {
+                            tmeta.is_folder = info.is_folder;
                         }
                     }
                 }
-                if matches!(item.state, DownloadState::FetchingMetadata) {
-                    item.state = DownloadState::Downloading {
+                
+                if matches!(item.state, crate::models::download::DownloadState::FetchingMetadata) {
+                    item.state = crate::models::download::DownloadState::Downloading {
                         downloaded_bytes: item.downloaded_bytes,
                         total_bytes: item.total_bytes,
                         speed_bps: 0,
@@ -276,10 +326,11 @@ pub(crate) fn handle_background_metadata_fetched(
         let engine = app.engine.clone();
         let downloads_clone = app.downloads.clone();
 
+        let play_media = app.settings.torrent_play_media_while_downloading;
         return Task::perform(
             async move {
                 let _ = storage::json_store::save_downloads(&downloads_clone);
-                engine.start_or_resume(item_clone).await;
+                engine.start_or_resume(item_clone, play_media).await;
                 Ok(())
             },
             Message::DownloadsPersisted,

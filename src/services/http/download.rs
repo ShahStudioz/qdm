@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use reqwest::Client;
-use crate::services::downloads::metadata::MetadataService;
+use crate::services::http::metadata::MetadataService;
 
 #[derive(Debug, Clone)]
 pub struct DownloadFileMetaData {

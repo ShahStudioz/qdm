@@ -6,7 +6,7 @@
 
 use crate::app::{Message, QdmApp};
 use crate::models::download::DownloadState;
-use crate::services::storage;
+use crate::services::shared::storage;
 use crate::views::dialogues::conflict_dialogue;
 use iced::Task;
 
@@ -22,15 +22,18 @@ pub(crate) fn handle_second_tick(app: &mut QdmApp) -> Task<Message> {
         ));
     }
 
+    // Clear recently copied link IDs so the checkmark reverts
+    app.copied_link_ids.clear();
+
     // 2. Automated Download Scheduler evaluation
-    let action = crate::services::schedule::SchedulerService::evaluate_tick(
+    let action = crate::services::shared::schedule::SchedulerService::evaluate_tick(
         &app.settings.schedule,
         &app.downloads,
         app.schedule_power_action_triggered,
     );
 
     match action {
-        crate::services::schedule::SchedulerTickAction::ResumeDownloads(ids) => {
+        crate::services::shared::schedule::SchedulerTickAction::ResumeDownloads(ids) => {
             for id in ids {
                 if let Some(item) = app.downloads.iter_mut().find(|d| d.id == id) {
                     println!(
@@ -44,7 +47,7 @@ pub(crate) fn handle_second_tick(app: &mut QdmApp) -> Task<Message> {
             }
             app.synchronize_and_persist_queue()
         }
-        crate::services::schedule::SchedulerTickAction::PauseDownloads(ids) => {
+        crate::services::shared::schedule::SchedulerTickAction::PauseDownloads(ids) => {
             let mut tasks = Vec::new();
             for id in ids {
                 if let Some(item) = app.downloads.iter_mut().find(|d| d.id == id) {
@@ -75,18 +78,18 @@ pub(crate) fn handle_second_tick(app: &mut QdmApp) -> Task<Message> {
             }
             Task::none()
         }
-        crate::services::schedule::SchedulerTickAction::TriggerPowerAction(power_action) => {
+        crate::services::shared::schedule::SchedulerTickAction::TriggerPowerAction(power_action) => {
             app.schedule_power_action_triggered = true;
-            crate::services::schedule::SchedulerService::execute_power_action(power_action);
+            crate::services::shared::schedule::SchedulerService::execute_power_action(power_action);
             Task::none()
         }
-        crate::services::schedule::SchedulerTickAction::None => Task::none(),
+        crate::services::shared::schedule::SchedulerTickAction::None => Task::none(),
     }
 }
 
 /// Moves a queued download one position up in the queue, then re-synchronizes.
 pub(crate) fn handle_move_queue_item_up(app: &mut QdmApp, id: usize) -> Task<Message> {
-    if crate::services::downloads::QueueService::move_item_up(&mut app.downloads, id) {
+    if crate::services::http::QueueService::move_item_up(&mut app.downloads, id) {
         return app.synchronize_and_persist_queue();
     }
     Task::none()
@@ -94,7 +97,7 @@ pub(crate) fn handle_move_queue_item_up(app: &mut QdmApp, id: usize) -> Task<Mes
 
 /// Moves a queued download one position down in the queue, then re-synchronizes.
 pub(crate) fn handle_move_queue_item_down(app: &mut QdmApp, id: usize) -> Task<Message> {
-    if crate::services::downloads::QueueService::move_item_down(&mut app.downloads, id) {
+    if crate::services::http::QueueService::move_item_down(&mut app.downloads, id) {
         return app.synchronize_and_persist_queue();
     }
     Task::none()
@@ -102,7 +105,7 @@ pub(crate) fn handle_move_queue_item_down(app: &mut QdmApp, id: usize) -> Task<M
 
 /// Moves a scheduled download one position up in the schedule list.
 pub(crate) fn handle_move_scheduled_item_up(app: &mut QdmApp, id: usize) -> Task<Message> {
-    if crate::services::downloads::QueueService::move_scheduled_up(&mut app.downloads, id) {
+    if crate::services::http::QueueService::move_scheduled_up(&mut app.downloads, id) {
         let downloads_clone = app.downloads.clone();
         return Task::perform(
             async move { storage::json_store::save_downloads(&downloads_clone) },
@@ -114,7 +117,7 @@ pub(crate) fn handle_move_scheduled_item_up(app: &mut QdmApp, id: usize) -> Task
 
 /// Moves a scheduled download one position down in the schedule list.
 pub(crate) fn handle_move_scheduled_item_down(app: &mut QdmApp, id: usize) -> Task<Message> {
-    if crate::services::downloads::QueueService::move_scheduled_down(&mut app.downloads, id) {
+    if crate::services::http::QueueService::move_scheduled_down(&mut app.downloads, id) {
         let downloads_clone = app.downloads.clone();
         return Task::perform(
             async move { storage::json_store::save_downloads(&downloads_clone) },

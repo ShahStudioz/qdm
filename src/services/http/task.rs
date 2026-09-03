@@ -23,11 +23,11 @@ use reqwest::Client;
 use tokio::sync::{mpsc, watch};
 
 use crate::models::download::{ChunkState, DownloadItem, DownloadState, FileType};
-use crate::services::downloads::diagnostics::{DiagEvent, DiagSender};
-use crate::services::downloads::integrity;
-use crate::services::downloads::throttler::Throttler;
-use crate::services::downloads::worker::{ChunkWorker, WorkerEvent};
-use crate::services::downloads::writer::PositionalWriter;
+use crate::services::http::diagnostics::{DiagEvent, DiagSender};
+use crate::services::http::integrity;
+use crate::services::http::throttler::Throttler;
+use crate::services::http::worker::{ChunkWorker, WorkerEvent};
+use crate::services::http::writer::PositionalWriter;
 
 /// Events transmitted from the Task Controller back to the Download Engine.
 #[derive(Debug, Clone)]
@@ -62,7 +62,7 @@ pub enum TaskEvent {
 }
 
 /// Rolling window speed meter that aggregates bytes over a 1.5-second window.
-struct SlidingSpeedMeter {
+pub(crate) struct SlidingSpeedMeter {
     pub(crate) samples: VecDeque<(Instant, u64)>,
     window_duration: Duration,
     pub(crate) last_nonzero_speed: u64,
@@ -70,7 +70,7 @@ struct SlidingSpeedMeter {
 }
 
 impl SlidingSpeedMeter {
-    fn new(window_duration: Duration) -> Self {
+    pub(crate) fn new(window_duration: Duration) -> Self {
         Self {
             samples: VecDeque::with_capacity(64),
             window_duration,
@@ -79,7 +79,7 @@ impl SlidingSpeedMeter {
         }
     }
 
-    fn record_bytes(&mut self, count: u64) {
+    pub(crate) fn record_bytes(&mut self, count: u64) {
         if count > 0 {
             let now = Instant::now();
             self.samples.push_back((now, count));
@@ -87,7 +87,7 @@ impl SlidingSpeedMeter {
         }
     }
 
-    fn calculate_speed_bps(&mut self) -> u64 {
+    pub(crate) fn calculate_speed_bps(&mut self) -> u64 {
         let now = Instant::now();
         self.prune(now);
 
@@ -151,15 +151,24 @@ pub struct DownloadTaskController {
 }
 
 impl DownloadTaskController {
+    fn http_meta(&self) -> &crate::models::download::HttpMetadata {
+        self.item.http_meta().expect("DownloadTaskController only handles HTTP downloads")
+    }
+
+    fn http_meta_mut(&mut self) -> &mut crate::models::download::HttpMetadata {
+        self.item.http_meta_mut().expect("DownloadTaskController only handles HTTP downloads")
+    }
+
     pub fn new(
         item: DownloadItem,
         client: Client,
         pause_rx: watch::Receiver<bool>,
         task_event_tx: mpsc::Sender<TaskEvent>,
     ) -> Self {
+        let http = item.http_meta().expect("DownloadTaskController only handles HTTP downloads");
         let max_concurrency = (item.max_connections as usize).clamp(1, 16);
         // Start conservatively with 2 connections (or 1 if non-resumable)
-        let initial_target = if item.resumable && item.total_bytes.map(|t| t > 1024 * 1024).unwrap_or(false) {
+        let initial_target = if http.resumable && item.total_bytes.map(|t| t > 1024 * 1024).unwrap_or(false) {
             2.min(max_concurrency)
         } else {
             1
@@ -208,8 +217,9 @@ impl DownloadTaskController {
         };
 
         // 2. Partition initial long-lived chunks or reuse existing chunk state
-        if self.item.chunks.is_empty() {
-            self.item.chunks = self.partition_initial_chunks();
+        if self.http_meta().chunks.is_empty() {
+            let chunks = self.partition_initial_chunks();
+            self.http_meta_mut().chunks = chunks;
         }
 
         // 3. Worker channels & execution loop
@@ -306,11 +316,11 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                         total_bytes: self.item.total_bytes,
                         speed_bps: cur_speed_bps,
                         eta_secs,
-                        chunks: self.item.chunks.clone(),
+                        chunks: self.http_meta().chunks.clone(),
                     }).await;
 
                     // Adaptive scaling check (attempt +1 connection after 4s if healthy)
-                    if self.item.resumable
+                    if self.http_meta().resumable
                         && self.active_workers.len() == self.current_target_concurrency
                         && self.current_target_concurrency < self.max_allowed_concurrency
                         && Instant::now() >= self.next_scale_up_allowed
@@ -337,13 +347,13 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                                 changed = true;
                                 println!("[QDM Task {}] In-flight metadata discovered: total size = {} bytes", self.item.id, total_bytes);
                             }
-                            if !self.item.resumable && resumable {
-                                self.item.resumable = true;
+                            if !self.http_meta().resumable && resumable {
+                                self.http_meta_mut().resumable = true;
                                 changed = true;
                             }
                             if changed {
-                                if self.item.chunks.len() == 1 && self.item.chunks[0].end_byte == u64::MAX {
-                                    self.item.chunks[0].end_byte = total_bytes.saturating_sub(1);
+                                if self.http_meta().chunks.len() == 1 && self.http_meta_mut().chunks[0].end_byte == u64::MAX {
+                                    self.http_meta_mut().chunks[0].end_byte = total_bytes.saturating_sub(1);
                                 }
                                 let _ = self.task_event_tx.send(TaskEvent::ProgressUpdated {
                                     id: self.item.id,
@@ -351,7 +361,7 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                                     total_bytes: self.item.total_bytes,
                                     speed_bps: 0,
                                     eta_secs: None,
-                                    chunks: self.item.chunks.clone(),
+                                    chunks: self.http_meta().chunks.clone(),
                                 }).await;
                                 let _ = self.task_event_tx.send(TaskEvent::StatePersistRequested {
                                     item: self.item.clone(),
@@ -359,7 +369,7 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                             }
                         }
                         Some(WorkerEvent::BytesDownloaded { chunk_id, count, current_offset }) => {
-                            if let Some(chunk) = self.item.chunks.iter_mut().find(|c| c.id == chunk_id) {
+                            if let Some(chunk) = self.http_meta_mut().chunks.iter_mut().find(|c| c.id == chunk_id) {
                                 chunk.current_offset = current_offset;
                             }
                             speed_meter.record_bytes(count);
@@ -382,14 +392,14 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                             }
                         }
                         Some(WorkerEvent::ChunkCompleted { chunk_id }) => {
-                            if let Some(chunk) = self.item.chunks.iter_mut().find(|c| c.id == chunk_id) {
+                            if let Some(chunk) = self.http_meta_mut().chunks.iter_mut().find(|c| c.id == chunk_id) {
                                 chunk.is_completed = true;
                                 chunk.current_offset = chunk.end_byte.saturating_add(1);
                             }
                             self.active_workers.remove(&chunk_id);
 
                             let total_downloaded = self.calculate_total_downloaded();
-                            let all_chunks_done = self.item.chunks.iter().all(|c| c.is_completed || (c.end_byte != u64::MAX && c.current_offset > c.end_byte));
+                            let all_chunks_done = self.http_meta().chunks.iter().all(|c| c.is_completed || (c.end_byte != u64::MAX && c.current_offset > c.end_byte));
                             let size_satisfied = self.item.total_bytes.map(|t| t > 0 && total_downloaded >= t).unwrap_or(false);
 
                             // Check if all chunks have finished or total size reached
@@ -397,7 +407,7 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                                 let _ = writer.sync_data();
                                 drop(writer);
 
-                                for c in &mut self.item.chunks {
+                                for c in &mut self.http_meta_mut().chunks {
                                     c.is_completed = true;
                                     c.current_offset = c.end_byte.saturating_add(1);
                                 }
@@ -480,7 +490,7 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
 
                             // Auto-recovery: If all workers dropped (e.g. transient network outage or IP rate limit),
                             // wait 3 seconds and trigger an automatic reconnect attempt without losing any chunk progress!
-                            if self.active_workers.is_empty() && self.item.chunks.iter().any(|c| !c.is_completed) {
+                            if self.active_workers.is_empty() && self.http_meta().chunks.iter().any(|c| !c.is_completed) {
                                 let mut pause_rx = self.pause_rx.clone();
                                 let worker_tx_clone = worker_tx.clone();
 
@@ -514,20 +524,20 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
     fn partition_initial_chunks(&self) -> Vec<ChunkState> {
         let total = match self.item.total_bytes {
             Some(t) if t > 0 => t,
-            _ => return vec![ChunkState::new(0, &self.item.primary_url.url, 0, u64::MAX)],
+            _ => return vec![ChunkState::new(0, &self.http_meta().primary_url.url, 0, u64::MAX)],
         };
 
         // Don't chunk small files (< 1MB) or non-resumable servers
-        if !self.item.resumable || total < 1024 * 1024 {
-            return vec![ChunkState::new(0, &self.item.primary_url.url, 0, total - 1)];
+        if !self.http_meta().resumable || total < 1024 * 1024 {
+            return vec![ChunkState::new(0, &self.http_meta().primary_url.url, 0, total - 1)];
         }
 
         // Long-Lived Streams: create initial_target massive chunks (e.g. 2 chunks for 2 initial connections)
         let num_connections = self.current_target_concurrency.clamp(1, 16);
         let mut chunks = Vec::with_capacity(num_connections);
 
-        let mut available_urls = vec![self.item.primary_url.url.clone()];
-        for mirror in &self.item.mirror_urls {
+        let mut available_urls = vec![self.http_meta().primary_url.url.clone()];
+        for mirror in &self.http_meta().mirror_urls {
             if mirror.is_active {
                 available_urls.push(mirror.url.clone());
             }
@@ -553,12 +563,12 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
     fn spawn_available_work(&mut self, writer: &PositionalWriter, worker_tx: &mpsc::Sender<WorkerEvent>) {
         while self.active_workers.len() < self.current_target_concurrency {
             // 1. Check for an uncompleted chunk that is NOT currently active
-            let next_chunk_idx = self.item.chunks.iter().position(|c| {
+            let next_chunk_idx = self.http_meta().chunks.iter().position(|c| {
                 !c.is_completed && c.current_offset <= c.end_byte && !self.active_workers.contains(&c.id)
             });
 
             if let Some(idx) = next_chunk_idx {
-                let chunk = self.item.chunks[idx].clone();
+                let chunk = self.http_meta().chunks[idx].clone();
                 self.active_workers.insert(chunk.id);
 
                 // Emit: worker spawned
@@ -588,7 +598,7 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
             } else {
                 // 2. Dynamic Work-Stealing: Find the active chunk with the largest remaining byte range (> 4MB)
                 let largest_idx = self
-                    .item
+                    .http_meta()
                     .chunks
                     .iter()
                     .enumerate()
@@ -597,7 +607,7 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                     .map(|(idx, _)| idx);
 
                 if let Some(idx) = largest_idx {
-                    let busy_chunk = &mut self.item.chunks[idx];
+                    let busy_chunk = &mut self.http_meta_mut().chunks[idx];
                     let remaining = busy_chunk.end_byte - busy_chunk.current_offset;
                     const MIN_STEAL_SIZE: u64 = 4 * 1024 * 1024; // Minimum 4MB to warrant a split
 
@@ -610,9 +620,9 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                         // Truncate existing chunk's end
                         busy_chunk.end_byte = midpoint;
 
-                        let new_id = self.item.chunks.len();
+                        let new_id = self.http_meta().chunks.len();
                         let new_chunk = ChunkState::new(new_id, url, stolen_start, stolen_end);
-                        self.item.chunks.push(new_chunk.clone());
+                        self.http_meta_mut().chunks.push(new_chunk.clone());
                         self.active_workers.insert(new_id);
 
                         // Emit: stolen worker spawned
@@ -650,7 +660,7 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
     }
 
     fn calculate_total_downloaded(&self) -> u64 {
-        self.item.chunks.iter().map(|c| c.downloaded_bytes()).sum()
+        self.http_meta().chunks.iter().map(|c| c.downloaded_bytes()).sum()
     }
 
     /// Validates file integrity upon download completion.

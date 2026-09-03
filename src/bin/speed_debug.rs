@@ -14,9 +14,9 @@ use reqwest::Client;
 use tokio::sync::{mpsc, watch};
 
 use qdm::models::download::{DownloadItem, DownloadState, DownloadUrl, FileType};
-use qdm::services::downloads::diagnostics::{self, DiagEvent};
-use qdm::services::downloads::metadata::MetadataService;
-use qdm::services::downloads::task::{DownloadTaskController, TaskEvent};
+use qdm::services::http::diagnostics::{self, DiagEvent};
+use qdm::services::http::metadata::MetadataService;
+use qdm::services::http::task::{DownloadTaskController, TaskEvent};
 
 const URL: &str = "http://212.183.159.230/512MB.zip";
 const SAVE_DIR: &str = ".";
@@ -53,8 +53,14 @@ async fn main() {
     let item = DownloadItem {
         id: 1,
         filename: "512MB_debug.zip".to_string(),
-        primary_url: DownloadUrl::new(URL),
-        mirror_urls: vec![],
+        download_type: qdm::models::download::DownloadType::Http(qdm::models::download::HttpMetadata {
+            primary_url: DownloadUrl::new(URL),
+            mirror_urls: vec![],
+            resumable: meta.supports_resume,
+            etag: meta.etag,
+            last_modified: meta.last_modified,
+            chunks: vec![],
+        }),
         save_path: SAVE_DIR.to_string(),
         downloaded_bytes: 0,
         total_bytes: meta.content_length,
@@ -62,14 +68,10 @@ async fn main() {
             downloaded_bytes: 0, total_bytes: meta.content_length, speed_bps: 0, eta_secs: None
         },
         file_type: FileType::Archive,
-        resumable: meta.supports_resume,
         is_scheduled: false,
         max_connections: 8,
         speed_limit_bps: None,
-        etag: meta.etag,
-        last_modified: meta.last_modified,
         sha256_hash: None,
-        chunks: vec![],
         created_at: 0, updated_at: 0, completed_at: None,
     };
 

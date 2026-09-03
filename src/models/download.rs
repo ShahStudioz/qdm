@@ -80,24 +80,53 @@ pub enum FileType {
 impl FileType {
     pub fn from_filename(filename: &str) -> Self {
         let lower = filename.to_lowercase();
+
+        // Archive / disk image
         if lower.ends_with(".zip")
             || lower.ends_with(".tar")
             || lower.ends_with(".gz")
+            || lower.ends_with(".bz2")
+            || lower.ends_with(".xz")
+            || lower.ends_with(".zst")
             || lower.ends_with(".7z")
             || lower.ends_with(".rar")
             || lower.ends_with(".iso")
+            || lower.ends_with(".img")
+            || lower.ends_with(".dmg")
+            || lower.ends_with(".cab")
+            || lower.ends_with(".deb")
+            || lower.ends_with(".rpm")
         {
             FileType::Archive
+        // Video / audio / image
         } else if lower.ends_with(".mp4")
             || lower.ends_with(".mkv")
             || lower.ends_with(".avi")
+            || lower.ends_with(".mov")
+            || lower.ends_with(".wmv")
+            || lower.ends_with(".webm")
+            || lower.ends_with(".flv")
+            || lower.ends_with(".m4v")
+            || lower.ends_with(".3gp")
             || lower.ends_with(".mp3")
+            || lower.ends_with(".flac")
+            || lower.ends_with(".ogg")
             || lower.ends_with(".wav")
+            || lower.ends_with(".aac")
+            || lower.ends_with(".m4a")
+            || lower.ends_with(".opus")
+            || lower.ends_with(".wma")
             || lower.ends_with(".png")
             || lower.ends_with(".jpg")
             || lower.ends_with(".jpeg")
+            || lower.ends_with(".gif")
+            || lower.ends_with(".webp")
+            || lower.ends_with(".bmp")
+            || lower.ends_with(".svg")
+            || lower.ends_with(".ico")
         {
             FileType::Media
+        // Code / executables / scripts
         } else if lower.ends_with(".rs")
             || lower.ends_with(".py")
             || lower.ends_with(".js")
@@ -107,11 +136,37 @@ impl FileType {
             || lower.ends_with(".sql")
             || lower.ends_with(".msi")
             || lower.ends_with(".exe")
+            || lower.ends_with(".apk")
+            || lower.ends_with(".appimage")
+            || lower.ends_with(".sh")
+            || lower.ends_with(".bat")
+            || lower.ends_with(".ps1")
+            || lower.ends_with(".c")
+            || lower.ends_with(".cpp")
+            || lower.ends_with(".h")
+            || lower.ends_with(".java")
+            || lower.ends_with(".go")
+            || lower.ends_with(".json")
+            || lower.ends_with(".xml")
+            || lower.ends_with(".yaml")
+            || lower.ends_with(".yml")
+            || lower.ends_with(".toml")
+            || lower.ends_with(".wasm")
+            || lower.ends_with(".php")
         {
             FileType::Code
+        // Documents / spreadsheets / ebooks
         } else if lower.ends_with(".pdf")
             || lower.ends_with(".doc")
             || lower.ends_with(".docx")
+            || lower.ends_with(".xls")
+            || lower.ends_with(".xlsx")
+            || lower.ends_with(".ppt")
+            || lower.ends_with(".pptx")
+            || lower.ends_with(".odt")
+            || lower.ends_with(".csv")
+            || lower.ends_with(".rtf")
+            || lower.ends_with(".epub")
             || lower.ends_with(".txt")
             || lower.ends_with(".md")
         {
@@ -175,12 +230,49 @@ impl ChunkState {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DownloadItem {
-    pub id: usize,
-    pub filename: String,
+pub enum DownloadType {
+    Http(HttpMetadata),
+    Torrent(TorrentMetadata),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HttpMetadata {
     pub primary_url: DownloadUrl,
     #[serde(default)]
     pub mirror_urls: Vec<DownloadUrl>,
+    #[serde(default)]
+    pub resumable: bool,
+    #[serde(default)]
+    pub etag: Option<String>,
+    #[serde(default)]
+    pub last_modified: Option<String>,
+    #[serde(default)]
+    pub chunks: Vec<ChunkState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TorrentMetadata {
+    pub magnet_uri: String,
+    #[serde(default)]
+    pub info_hash: Option<String>,
+    #[serde(default)]
+    pub selected_files: Option<Vec<usize>>,
+    #[serde(default)]
+    pub is_folder: bool,
+    #[serde(default)]
+    pub peers_connected: u32,
+    #[serde(default)]
+    pub seeds_connected: u32,
+    #[serde(default)]
+    pub upload_speed_bps: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DownloadItem {
+    pub id: usize,
+    pub filename: String,
+    #[serde(rename = "type")]
+    pub download_type: DownloadType,
     #[serde(default)]
     pub save_path: String,
     #[serde(default)]
@@ -190,21 +282,13 @@ pub struct DownloadItem {
     pub state: DownloadState,
     pub file_type: FileType,
     #[serde(default)]
-    pub resumable: bool,
-    #[serde(default)]
     pub is_scheduled: bool,
     #[serde(default = "default_connections")]
     pub max_connections: u32,
     #[serde(default)]
     pub speed_limit_bps: Option<u64>,
     #[serde(default)]
-    pub etag: Option<String>,
-    #[serde(default)]
-    pub last_modified: Option<String>,
-    #[serde(default)]
     pub sha256_hash: Option<String>,
-    #[serde(default)]
-    pub chunks: Vec<ChunkState>,
     #[serde(default)]
     pub created_at: u64,
     #[serde(default)]
@@ -292,16 +376,53 @@ impl DownloadItem {
         }
     }
 
+    pub fn http_meta(&self) -> Option<&HttpMetadata> {
+        match &self.download_type {
+            DownloadType::Http(meta) => Some(meta),
+            _ => None,
+        }
+    }
+
+    pub fn http_meta_mut(&mut self) -> Option<&mut HttpMetadata> {
+        match &mut self.download_type {
+            DownloadType::Http(meta) => Some(meta),
+            _ => None,
+        }
+    }
+
+    pub fn torrent_meta(&self) -> Option<&TorrentMetadata> {
+        match &self.download_type {
+            DownloadType::Torrent(meta) => Some(meta),
+            _ => None,
+        }
+    }
+
+    pub fn torrent_meta_mut(&mut self) -> Option<&mut TorrentMetadata> {
+        match &mut self.download_type {
+            DownloadType::Torrent(meta) => Some(meta),
+            _ => None,
+        }
+    }
+
     pub fn get_url(&self) -> &str {
-        &self.primary_url.url
+        match &self.download_type {
+            DownloadType::Http(http) => &http.primary_url.url,
+            DownloadType::Torrent(torrent) => &torrent.magnet_uri,
+        }
     }
 
     pub fn active_mirrors_count(&self) -> usize {
-        self.mirror_urls.iter().filter(|m| m.is_active).count()
+        match &self.download_type {
+            DownloadType::Http(http) => http.mirror_urls.iter().filter(|m| m.is_active).count(),
+            DownloadType::Torrent(_) => 0,
+        }
     }
 
     pub fn total_mirrors_count(&self) -> usize {
-        self.mirror_urls.len()
+        match &self.download_type {
+            DownloadType::Http(http) => http.mirror_urls.len(),
+            DownloadType::Torrent(_) => 0,
+        }
     }
 }
 

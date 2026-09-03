@@ -56,9 +56,15 @@ pub const ICON_ARROW_DOWN: char = '\u{f063}';    // fa-arrow-down
 pub const ICON_LIST_ORDER: char = '\u{f0cb}';    // fa-list-ol
 pub const ICON_XMARK: char = '\u{f00d}';         // fa-xmark
 
+pub const ICON_MAGNET: char = '\u{f076}';        // fa-magnet
+pub const ICON_COPY: char = '\u{f0c5}';          // fa-copy
+pub const ICON_USERS: char = '\u{f0c0}';         // fa-users
+pub const ICON_UPLOAD: char = '\u{f093}';        // fa-upload
+
 // File Type Icons
 pub const ICON_DISC: char = '\u{f51e}';          // fa-compact-disc (ISO)
 pub const ICON_ZIP: char = '\u{f1c6}';           // fa-file-zipper (ZIP)
 pub const ICON_BOX: char = '\u{f49e}';           // fa-box-archive (TAR.GZ)
 pub const ICON_GRID: char = '\u{f009}';          // fa-th-large (MSI/Installer)
 pub const ICON_DATABASE: char = '\u{f1c0}';      // fa-database (SQL)
+

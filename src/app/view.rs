@@ -136,8 +136,7 @@ impl QdmApp {
                         d.filename
                             .to_lowercase()
                             .contains(&self.search_query.to_lowercase())
-                            || d.primary_url
-                                .url
+                            || d.get_url()
                                 .to_lowercase()
                                 .contains(&self.search_query.to_lowercase())
                     };
@@ -147,10 +146,12 @@ impl QdmApp {
 
                 let list_view = download_list_view(
                     filtered_items,
+                    &self.copied_link_ids,
                     Message::TogglePause,
                     Message::CancelDownload,
                     Message::OpenFolder,
                     Message::OpenMirrorsModal,
+                    Message::CopyLink,
                 );
 
                 if let Some(banner) = schedule_banner {

@@ -6,10 +6,12 @@ use iced::{Alignment, Element, Length};
 
 pub fn download_item_view<'a, Message>(
     item: &'a DownloadItem,
+    is_copied: bool,
     on_toggle_pause: impl Fn(usize) -> Message + 'a,
     on_cancel: impl Fn(usize) -> Message + 'a,
     on_open_folder: impl Fn(usize) -> Message + 'a,
     on_open_mirrors: impl Fn(usize) -> Message + 'a,
+    on_copy_link: impl Fn(usize) -> Message + 'a,
 ) -> Element<'a, Message>
 where
     Message: 'a + Clone + 'static,
@@ -49,6 +51,32 @@ where
         .color(colors::TEXT_PRIMARY);
 
     let mut header_left = row![filename_text].spacing(10).align_y(Alignment::Center);
+
+    if item.torrent_meta().is_some() {
+        let torrent_badge = container(
+            row![
+                icon(icons::ICON_MAGNET)
+                    .size(10)
+                    .color(colors::BACKGROUND),
+                text("TORRENT")
+                    .size(10)
+                    .font(styles::BOLD_FONT)
+                    .color(colors::BACKGROUND),
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center),
+        )
+        .padding([2, 8])
+        .style(|_| container::Style {
+            background: Some(iced::Background::Color(colors::TORRENT)),
+            border: iced::Border {
+                radius: 10.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        header_left = header_left.push(torrent_badge);
+    }
 
     if item.is_scheduled && !matches!(item.state, DownloadState::Scheduled) {
         let sched_badge = container(
@@ -264,7 +292,7 @@ where
     let item_id = item.id;
 
     // Mirrors badge / button
-    let mirrors_count = item.mirror_urls.len();
+    let mirrors_count = item.http_meta().map(|m| m.mirror_urls.len()).unwrap_or(0);
     let mirrors_label = if mirrors_count == 0 {
         "Mirrors".to_string()
     } else {
@@ -301,10 +329,11 @@ where
             let cancel_btn = button(icon(icons::ICON_CANCEL).size(14))
                 .style(styles::icon_button_style)
                 .on_press(on_cancel(item_id));
-            row![mirrors_btn, pause_btn, cancel_btn]
-                .spacing(10)
-                .align_y(Alignment::Center)
-                .into()
+            let mut r = row![].spacing(10).align_y(Alignment::Center);
+            if item.http_meta().is_some() {
+                r = r.push(mirrors_btn);
+            }
+            r.push(pause_btn).push(cancel_btn).into()
         }
         DownloadState::Completed => {
             let folder_btn = button(icon(icons::ICON_FOLDER).size(14))
@@ -313,10 +342,11 @@ where
             let trash_btn = button(icon(icons::ICON_TRASH).size(14))
                 .style(styles::icon_button_style)
                 .on_press(on_cancel(item_id));
-            row![mirrors_btn, folder_btn, trash_btn]
-                .spacing(10)
-                .align_y(Alignment::Center)
-                .into()
+            let mut r = row![].spacing(10).align_y(Alignment::Center);
+            if item.http_meta().is_some() {
+                r = r.push(mirrors_btn);
+            }
+            r.push(folder_btn).push(trash_btn).into()
         }
         DownloadState::Queued | DownloadState::Paused { .. } | DownloadState::Scheduled => {
             let play_btn = button(icon(icons::ICON_PLAY).size(14))
@@ -325,10 +355,11 @@ where
             let cancel_btn = button(icon(icons::ICON_CANCEL).size(14))
                 .style(styles::icon_button_style)
                 .on_press(on_cancel(item_id));
-            row![mirrors_btn, play_btn, cancel_btn]
-                .spacing(10)
-                .align_y(Alignment::Center)
-                .into()
+            let mut r = row![].spacing(10).align_y(Alignment::Center);
+            if item.http_meta().is_some() {
+                r = r.push(mirrors_btn);
+            }
+            r.push(play_btn).push(cancel_btn).into()
         }
         DownloadState::Failed { .. } => {
             let retry_btn = button(icon(icons::ICON_RETRY).size(14))
@@ -337,20 +368,38 @@ where
             let trash_btn = button(icon(icons::ICON_TRASH).size(14))
                 .style(styles::icon_button_style)
                 .on_press(on_cancel(item_id));
-            row![mirrors_btn, retry_btn, trash_btn]
-                .spacing(10)
-                .align_y(Alignment::Center)
-                .into()
+            let mut r = row![].spacing(10).align_y(Alignment::Center);
+            if item.http_meta().is_some() {
+                r = r.push(mirrors_btn);
+            }
+            r.push(retry_btn).push(trash_btn).into()
         }
     };
 
     let top_row =
         row![header_left, Space::with_width(Length::Fill), actions_row,].align_y(Alignment::Center);
 
-    let url_text = text(item.get_url())
+    let url_str = item.get_url();
+    let truncated_url = if url_str.len() > 60 {
+        format!("{}…", &url_str[..60])
+    } else {
+        url_str.to_string()
+    };
+
+    let url_text = text(truncated_url)
         .size(12)
         .font(styles::MONO_FONT)
         .color(colors::TEXT_MUTED);
+
+    let copy_icon_char = if is_copied { icons::ICON_CHECK } else { icons::ICON_COPY };
+    let copy_icon_color = if is_copied { colors::SUCCESS } else { colors::TEXT_MUTED };
+    
+    let copy_btn = button(icon(copy_icon_char).size(12).color(copy_icon_color))
+        .style(styles::icon_button_style)
+        .padding(0)
+        .on_press(on_copy_link(item.id));
+
+    let url_row = row![copy_btn, url_text].spacing(6).align_y(Alignment::Center);
 
     let second_row_col: Element<Message> = if let DownloadState::Failed { error, .. } = &item.state
     {
@@ -363,9 +412,9 @@ where
         .spacing(6)
         .align_y(Alignment::Center);
 
-        column![url_text, err_row].spacing(6).into()
+        column![url_row, err_row].spacing(6).into()
     } else {
-        url_text.into()
+        url_row.into()
     };
 
     let progress_val = item.progress();
@@ -417,10 +466,45 @@ where
             speed_bps,
             eta_secs,
             ..
-        } => (
-            colors::PRIMARY,
-            item.formatted_size_progress(),
-            Some(
+        } => {
+            let bar_c = colors::PRIMARY;
+
+            let size_det = if let Some(torrent) = item.torrent_meta() {
+                if torrent.peers_connected > 0 || torrent.seeds_connected > 0 {
+                    format!("{} · {} peers · {} seeds", item.formatted_size_progress(), torrent.peers_connected, torrent.seeds_connected)
+                } else {
+                    item.formatted_size_progress()
+                }
+            } else {
+                item.formatted_size_progress()
+            };
+
+            let speed_col = if let Some(torrent) = item.torrent_meta() {
+                column![
+                    row![
+                        icon(icons::ICON_ARROW_DOWN).size(10).color(colors::PRIMARY),
+                        text(format_speed(*speed_bps))
+                            .size(12)
+                            .font(styles::BOLD_FONT)
+                            .color(colors::TEXT_PRIMARY),
+                        Space::with_width(6),
+                        icon(icons::ICON_UPLOAD).size(10).color(colors::PRIMARY), // Used PRIMARY instead of unused TORRENT
+                        text(format_speed(torrent.upload_speed_bps))
+                            .size(12)
+                            .font(styles::BOLD_FONT)
+                            .color(colors::TEXT_PRIMARY),
+                    ]
+                    .spacing(2)
+                    .align_y(Alignment::Center),
+                    text(format!(
+                        "{} left",
+                        eta_secs.map(format_eta).unwrap_or_else(|| "--".to_string())
+                    ))
+                    .size(11)
+                    .color(colors::TEXT_MUTED),
+                ]
+                .align_x(Alignment::End)
+            } else {
                 column![
                     text(format_speed(*speed_bps))
                         .size(13)
@@ -433,9 +517,11 @@ where
                     .size(11)
                     .color(colors::TEXT_MUTED),
                 ]
-                .align_x(Alignment::End),
-            ),
-        ),
+                .align_x(Alignment::End)
+            };
+
+            (bar_c, size_det, Some(speed_col))
+        }
         DownloadState::Completed => (
             colors::SUCCESS,
             format!("{}  ·  Completed", item.formatted_total_size()),

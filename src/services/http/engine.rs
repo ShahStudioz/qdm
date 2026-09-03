@@ -17,8 +17,8 @@ use reqwest::Client;
 use tokio::sync::{broadcast, mpsc, watch, Mutex};
 
 use crate::models::download::{ChunkState, DownloadItem, DownloadState};
-use crate::services::downloads::metadata::{FileMetadata, MetadataService};
-use crate::services::downloads::task::{DownloadTaskController, TaskEvent};
+use crate::services::http::metadata::{FileMetadata, MetadataService};
+use crate::services::http::task::{DownloadTaskController, TaskEvent};
 
 /// High-level events emitted by the Download Engine for UI presentation.
 #[derive(Debug, Clone)]
@@ -30,6 +30,16 @@ pub enum EngineUiEvent {
         speed_bps: u64,
         eta_secs: Option<u64>,
         chunks: Vec<ChunkState>,
+    },
+    TorrentProgressUpdated {
+        id: usize,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
+        speed_bps: u64,
+        upload_speed_bps: u64,
+        peers: u32,
+        seeds: u32,
+        eta_secs: Option<u64>,
     },
     StateChanged {
         id: usize,

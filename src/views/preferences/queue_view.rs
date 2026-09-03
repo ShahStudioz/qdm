@@ -109,14 +109,16 @@ where
                 .font(styles::BOLD_FONT)
                 .color(colors::TEXT_PRIMARY);
 
+            let is_resumable = item.torrent_meta().is_some() || item.http_meta().map(|m| m.resumable).unwrap_or(false);
+            
             let mut sub_row = row![
                 text(item.formatted_size_progress())
                     .size(11)
                     .color(colors::TEXT_MUTED),
                 text("·").size(11).color(colors::TEXT_MUTED),
-                text(if item.resumable { "Resumable" } else { "Non-resumable" })
+                text(if is_resumable { "Resumable" } else { "Non-resumable" })
                     .size(11)
-                    .color(if item.resumable { colors::TEXT_MUTED } else { colors::WARNING }),
+                    .color(if is_resumable { colors::TEXT_MUTED } else { colors::WARNING }),
             ]
             .spacing(6)
             .align_y(Alignment::Center);

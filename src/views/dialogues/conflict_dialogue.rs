@@ -11,6 +11,7 @@ pub struct ConflictPendingDownload {
     pub max_connections: usize,
     pub speed_limit: Option<u64>,
     pub mirror_urls: Vec<String>,
+    pub is_torrent_folder: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -79,7 +80,14 @@ pub fn view(state: &ConflictDialogModel) -> Element<'_, ConflictDialogMessage> {
         .map(|p| p.save_to.as_str())
         .unwrap_or("");
 
-    let title_text = text("File Conflict Detected")
+    let is_folder = state
+        .pending
+        .as_ref()
+        .map(|p| p.is_torrent_folder)
+        .unwrap_or(false);
+
+    let title_label = if is_folder { "Folder Conflict Detected" } else { "File Conflict Detected" };
+    let title_text = text(title_label)
         .size(16)
         .font(styles::BOLD_FONT)
         .color(colors::TEXT_PRIMARY);
@@ -133,9 +141,14 @@ pub fn view(state: &ConflictDialogModel) -> Element<'_, ConflictDialogMessage> {
         ..Default::default()
     });
 
+    let detail_description = if is_folder {
+        "A folder with this name already exists in destination:"
+    } else {
+        "A file or partial download with this name already exists in destination:"
+    };
     let file_detail_box = container(
         column![
-            text("A file or partial download with this name already exists in destination:")
+            text(detail_description)
                 .size(12)
                 .color(colors::TEXT_MUTED),
             text(filename)

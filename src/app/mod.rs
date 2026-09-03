@@ -15,8 +15,8 @@ mod subscriptions;
 mod view;
 
 use crate::models::download::DownloadItem;
-use crate::services::downloads::{DownloadEngine, EngineUiEvent, FileMetadata};
-use crate::services::storage;
+use crate::services::http::EngineUiEvent;
+use crate::services::shared::storage;
 use crate::views::components::sidebar;
 use crate::views::dialogues::{add_dialogue, conflict_dialogue, delete_dialogue, mirror_dialogue};
 use crate::views::settings::settings;
@@ -41,7 +41,8 @@ pub enum Message {
     DownloadsLoaded(Result<Vec<DownloadItem>, String>),
     DownloadSaved(Result<DownloadItem, String>),
     DownloadsPersisted(Result<(), String>),
-    BackgroundMetadataFetched(usize, Result<FileMetadata, String>),
+    BackgroundMetadataFetched(usize, Result<crate::services::engine::ProbeResult, String>),
+    TorrentEngineInitialized,
 
     // --- Engine Events ---
     EngineEvent(EngineUiEvent),
@@ -57,6 +58,7 @@ pub enum Message {
     // --- Download Actions ---
     TogglePause(usize),
     CancelDownload(usize),
+    CopyLink(usize),
     OpenFolder(usize),
     OpenMirrorsModal(usize),
 
@@ -101,7 +103,11 @@ pub struct QdmApp {
     pub(crate) delete_dialog: delete_dialogue::DeleteDialogModel,
 
     // --- Engine ---
-    pub(crate) engine: DownloadEngine,
+    pub(crate) engine: crate::services::engine::AppEngine,
+
+    // --- Transient UI State ---
+    /// IDs of download items whose link was recently copied (for icon flash).
+    pub(crate) copied_link_ids: std::collections::HashSet<usize>,
 }
 
 impl Default for QdmApp {
@@ -118,7 +124,8 @@ impl Default for QdmApp {
             mirror_dialog: mirror_dialogue::MirrorDialogModel::default(),
             conflict_dialog: conflict_dialogue::ConflictDialogModel::default(),
             delete_dialog: delete_dialogue::DeleteDialogModel::default(),
-            engine: DownloadEngine::new(),
+            engine: crate::services::engine::AppEngine::new(crate::services::http::DownloadEngine::new()),
+            copied_link_ids: std::collections::HashSet::new(),
         }
     }
 }
@@ -129,16 +136,25 @@ impl QdmApp {
     pub fn new() -> (Self, Task<Message>) {
         let initial_settings = storage::json_store::load_settings().unwrap_or_default();
         let app = Self {
-            settings: initial_settings,
+            settings: initial_settings.clone(),
             ..Default::default()
         };
 
-        let task = Task::perform(
+        let downloads_task = Task::perform(
             async { storage::json_store::load_downloads() },
             Message::DownloadsLoaded,
         );
+        
+        let engine_clone = app.engine.clone();
+        let default_dir = std::path::PathBuf::from(initial_settings.download_folder.clone());
+        let torrent_task = Task::perform(
+            async move {
+                engine_clone.init_torrent(default_dir).await;
+            },
+            |_| Message::TorrentEngineInitialized
+        );
 
-        (app, task)
+        (app, Task::batch([downloads_task, torrent_task]))
     }
 
     // -----------------------------------------------------------------------
@@ -154,7 +170,7 @@ impl QdmApp {
         &mut self,
         protected_id: Option<usize>,
     ) -> Task<Message> {
-        let action = crate::services::downloads::QueueService::synchronize_queue_with_protected(
+        let action = crate::services::http::QueueService::synchronize_queue_with_protected(
             &mut self.downloads,
             self.settings.simultaneous_downloads,
             protected_id,
@@ -163,9 +179,10 @@ impl QdmApp {
         let mut tasks = Vec::new();
         for item in action.to_start {
             let engine = self.engine.clone();
+            let play_media = self.settings.torrent_play_media_while_downloading;
             tasks.push(Task::perform(
                 async move {
-                    engine.start_or_resume(item).await;
+                    engine.start_or_resume(item, play_media).await;
                     Ok(())
                 },
                 |_: Result<(), String>| Message::Tick,
@@ -224,6 +241,10 @@ impl QdmApp {
             Message::DownloadsLoaded(result) => {
                 handlers::navigation::handle_downloads_loaded(self, result)
             }
+            Message::TorrentEngineInitialized => {
+                // The engine was initialized, we can safely synchronize queue or do nothing
+                Task::none()
+            }
             Message::DownloadSaved(result) => {
                 handlers::downloads::handle_download_saved(self, result)
             }
@@ -254,6 +275,7 @@ impl QdmApp {
             Message::CancelDownload(id) => {
                 handlers::downloads::handle_cancel_download(self, id)
             }
+            Message::CopyLink(id) => handlers::downloads::handle_copy_link(self, id),
             Message::OpenFolder(id) => handlers::downloads::handle_open_folder(self, id),
             Message::OpenMirrorsModal(id) => {
                 handlers::downloads::handle_open_mirrors_modal(self, id)

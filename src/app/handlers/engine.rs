@@ -7,8 +7,8 @@
 
 use crate::app::{Message, QdmApp};
 use crate::models::download::DownloadState;
-use crate::services::downloads::EngineUiEvent;
-use crate::services::storage;
+use crate::services::http::EngineUiEvent;
+use crate::services::shared::storage;
 use iced::Task;
 
 /// Processes a single engine UI event and returns any resulting tasks.
@@ -26,6 +26,27 @@ pub(crate) fn handle_engine_event(app: &mut QdmApp, event: EngineUiEvent) -> Tas
             eta_secs,
             chunks,
         } => handle_progress_updated(app, id, downloaded_bytes, total_bytes, speed_bps, eta_secs, chunks),
+
+        EngineUiEvent::TorrentProgressUpdated {
+            id,
+            downloaded_bytes,
+            total_bytes,
+            speed_bps,
+            upload_speed_bps,
+            peers,
+            seeds,
+            eta_secs,
+        } => handle_torrent_progress_updated(
+            app,
+            id,
+            downloaded_bytes,
+            total_bytes,
+            speed_bps,
+            upload_speed_bps,
+            peers,
+            seeds,
+            eta_secs,
+        ),
 
         EngineUiEvent::StateChanged { id, state } => handle_state_changed(app, id, state),
 
@@ -59,7 +80,7 @@ fn handle_progress_updated(
         if total_bytes.is_some() {
             item.total_bytes = total_bytes;
         }
-        item.chunks = chunks;
+        if let Some(http) = item.http_meta_mut() { http.chunks = chunks; }
 
         // If stream is actively transferring bytes, reset per-failure auto-retry counter
         if speed_bps > 0 && app.retry_counts.contains_key(&id) {
@@ -81,6 +102,62 @@ fn handle_progress_updated(
         }
 
         // If all bytes have been downloaded, transition to Completed
+        if let Some(total) = item.total_bytes {
+            if total > 0 && downloaded_bytes >= total {
+                item.state = DownloadState::Completed;
+                return Task::none();
+            }
+        }
+
+        item.state = DownloadState::Downloading {
+            downloaded_bytes,
+            total_bytes: item.total_bytes,
+            speed_bps,
+            eta_secs,
+        };
+    }
+    Task::none()
+}
+
+/// Updates progress and metadata for active torrent downloads.
+fn handle_torrent_progress_updated(
+    app: &mut QdmApp,
+    id: usize,
+    downloaded_bytes: u64,
+    total_bytes: Option<u64>,
+    speed_bps: u64,
+    upload_speed_bps: u64,
+    peers: u32,
+    seeds: u32,
+    eta_secs: Option<u64>,
+) -> Task<Message> {
+    if let Some(item) = app.downloads.iter_mut().find(|d| d.id == id) {
+        item.downloaded_bytes = downloaded_bytes;
+        if total_bytes.is_some() {
+            item.total_bytes = total_bytes;
+        }
+        if let Some(torrent) = item.torrent_meta_mut() {
+            torrent.peers_connected = peers;
+            torrent.seeds_connected = seeds;
+            torrent.upload_speed_bps = upload_speed_bps;
+        }
+
+        if speed_bps > 0 && app.retry_counts.contains_key(&id) {
+            app.retry_counts.remove(&id);
+        }
+
+        if matches!(
+            item.state,
+            DownloadState::Completed
+                | DownloadState::Failed { .. }
+                | DownloadState::Paused { .. }
+                | DownloadState::WaitingForNetwork { .. }
+                | DownloadState::Queued
+                | DownloadState::Scheduled
+        ) {
+            return Task::none();
+        }
+
         if let Some(total) = item.total_bytes {
             if total > 0 && downloaded_bytes >= total {
                 item.state = DownloadState::Completed;
@@ -146,6 +223,32 @@ fn handle_download_completed(
             item.sha256_hash = Some(hash);
         }
 
+        // Move torrent out of staging folder if it was used
+        if let crate::models::download::DownloadType::Torrent(_) = item.download_type {
+            let mut staging_dir = std::path::PathBuf::from(&item.save_path);
+            staging_dir.push(format!(".qdmdownload_{}", item.id));
+            
+            if staging_dir.exists() {
+                let source = staging_dir.join(&item.filename);
+                let target = std::path::PathBuf::from(&item.save_path).join(&item.filename);
+                
+                if source.exists() {
+                    // If target already exists (overwrite scenario), remove it first
+                    if target.exists() {
+                        if target.is_dir() {
+                            let _ = std::fs::remove_dir_all(&target);
+                        } else {
+                            let _ = std::fs::remove_file(&target);
+                        }
+                    }
+                    let _ = std::fs::rename(&source, &target);
+                }
+                
+                // Clean up the staging directory (may still contain metadata)
+                let _ = std::fs::remove_dir_all(&staging_dir);
+            }
+        }
+
         // Automatically promote next queued download
         return app.synchronize_and_persist_queue();
     }
@@ -179,10 +282,11 @@ fn handle_download_failed(app: &mut QdmApp, id: usize, error: String) -> Task<Me
 
                 let item_clone = item.clone();
                 let engine = app.engine.clone();
+                let play_media = app.settings.torrent_play_media_while_downloading;
                 return Task::perform(
                     async move {
                         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                        engine.start_or_resume(item_clone).await;
+                        engine.start_or_resume(item_clone, play_media).await;
                         Ok(())
                     },
                     |_: Result<(), String>| Message::Tick,
@@ -218,9 +322,13 @@ fn handle_persist_requested(
         if item.total_bytes.is_some() {
             target.total_bytes = item.total_bytes;
         }
-        target.chunks = item.chunks;
-        target.etag = item.etag;
-        target.last_modified = item.last_modified;
+        if let Some(target_http) = target.http_meta_mut() {
+            if let Some(item_http) = item.http_meta() {
+                target_http.chunks = item_http.chunks.clone();
+                target_http.etag = item_http.etag.clone();
+                target_http.last_modified = item_http.last_modified.clone();
+            }
+        }
         target.sha256_hash = item.sha256_hash;
 
         // Only update state if not currently Queued or Scheduled by the queue manager

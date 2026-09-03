@@ -68,3 +68,28 @@ pub fn generate_unique_filename(dir: &str, filename: &str) -> String {
         counter += 1;
     }
 }
+
+/// Checks if a directory with the given name exists in the target directory.
+/// Used for torrent folder conflict detection.
+pub fn folder_exists(dir: &str, folder_name: &str) -> bool {
+    let dir_path = std::path::Path::new(dir);
+    let target = dir_path.join(folder_name);
+    target.exists() && target.is_dir()
+}
+
+/// Generates a unique folder name if one already exists. 
+/// Appends ` (1)`, ` (2)`, etc. until a non-conflicting name is found.
+pub fn generate_unique_folder_name(dir: &str, folder_name: &str) -> String {
+    if !folder_exists(dir, folder_name) {
+        return folder_name.to_string();
+    }
+
+    let mut counter = 1u32;
+    loop {
+        let candidate_name = format!("{} ({})", folder_name, counter);
+        if !folder_exists(dir, &candidate_name) {
+            return candidate_name;
+        }
+        counter += 1;
+    }
+}

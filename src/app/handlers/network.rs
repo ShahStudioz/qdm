@@ -6,13 +6,13 @@
 
 use crate::app::{Message, QdmApp};
 use crate::models::download::DownloadState;
-use crate::services::storage;
+use crate::services::shared::storage;
 use iced::Task;
 
 /// Triggers an async network connectivity probe.
 pub(crate) fn handle_check_connectivity(_app: &mut QdmApp) -> Task<Message> {
     Task::perform(
-        crate::services::network::connectivity::ConnectivityMonitor::is_online(),
+        crate::services::shared::network::connectivity::ConnectivityMonitor::is_online(),
         Message::NetworkConnectivityResult,
     )
 }
@@ -36,9 +36,10 @@ pub(crate) fn handle_connectivity_result(app: &mut QdmApp, is_online: bool) -> T
                 };
                 let item_clone = item.clone();
                 let engine = app.engine.clone();
+                let play_media = app.settings.torrent_play_media_while_downloading;
                 resume_tasks.push(Task::perform(
                     async move {
-                        engine.start_or_resume(item_clone).await;
+                        engine.start_or_resume(item_clone, play_media).await;
                         Ok(())
                     },
                     |_: Result<(), String>| Message::Tick,
@@ -81,12 +82,28 @@ pub(crate) fn handle_sync_with_disk(app: &mut QdmApp) -> Task<Message> {
     });
 
     for d in &mut app.downloads {
-        if !matches!(d.state, DownloadState::Completed) && d.downloaded_bytes > 0 {
+        // Skip items actively managed by the engine — their files may not
+        // exist yet or may be inside a staging directory.
+        if matches!(
+            d.state,
+            DownloadState::Downloading { .. }
+                | DownloadState::FetchingMetadata
+                | DownloadState::Queued
+                | DownloadState::Scheduled
+                | DownloadState::Completed
+        ) {
+            continue;
+        }
+
+        if d.downloaded_bytes > 0 {
             let target = std::path::Path::new(&d.save_path).join(&d.filename);
             let temp_target = std::path::Path::new(&d.save_path)
                 .join(format!("{}.qdmdownload", d.filename));
+            let staging_dir = std::path::Path::new(&d.save_path)
+                .join(format!(".qdmdownload_{}", d.id));
             if !target.exists()
                 && !temp_target.exists()
+                && !staging_dir.exists()
                 && !matches!(d.state, DownloadState::Failed { .. })
             {
                 println!(

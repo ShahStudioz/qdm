@@ -6,10 +6,12 @@ use crate::views::downloads::download_item::download_item_view;
 
 pub fn download_list_view<'a, Message>(
     items: impl IntoIterator<Item = &'a DownloadItem>,
+    copied_ids: &'a std::collections::HashSet<usize>,
     on_toggle_pause: impl Fn(usize) -> Message + 'a + Clone,
     on_cancel: impl Fn(usize) -> Message + 'a + Clone,
     on_open_folder: impl Fn(usize) -> Message + 'a + Clone,
     on_open_mirrors: impl Fn(usize) -> Message + 'a + Clone,
+    on_copy_link: impl Fn(usize) -> Message + 'a + Clone,
 ) -> Element<'a, Message>
 where
     Message: 'a + Clone + 'static,
@@ -21,10 +23,12 @@ where
         count += 1;
         list_col = list_col.push(download_item_view(
             item,
+            copied_ids.contains(&item.id),
             on_toggle_pause.clone(),
             on_cancel.clone(),
             on_open_folder.clone(),
             on_open_mirrors.clone(),
+            on_copy_link.clone(),
         ));
     }
 
