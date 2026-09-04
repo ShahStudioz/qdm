@@ -34,9 +34,9 @@ impl TorrentEngine {
         })
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<EngineUiEvent> {
-        self.event_tx.subscribe()
-    }
+    // pub fn subscribe(&self) -> broadcast::Receiver<EngineUiEvent> {
+    //     self.event_tx.subscribe()
+    // }
 
     /// Resolves a magnet link or .torrent URL to fetch its metadata and file tree
     /// without starting the download.
@@ -394,8 +394,8 @@ impl TorrentEngine {
         }
     }
 
-    /// Updates global torrent speed limit.
-    pub async fn update_speed_limit(&self, _limit: Option<u64>) {
-        // librqbit speed limits can be added here if needed
-    }
+    // /// Updates global torrent speed limit.
+    // pub async fn update_speed_limit(&self, _limit: Option<u64>) {
+    //     // librqbit speed limits can be added here if needed
+    // }
 }
