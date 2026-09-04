@@ -22,7 +22,8 @@ pub(crate) fn handle_toggle_pause(app: &mut QdmApp, id: usize) -> Task<Message> 
         match &item.state {
             DownloadState::Downloading { .. }
             | DownloadState::WaitingForNetwork { .. }
-            | DownloadState::FetchingMetadata => {
+            | DownloadState::FetchingMetadata
+            | DownloadState::Checking { .. } => {
                 let bytes = item.downloaded_bytes;
                 let total = item.total_bytes;
                 item.state = DownloadState::Paused {

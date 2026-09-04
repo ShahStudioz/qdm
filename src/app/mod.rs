@@ -242,8 +242,31 @@ impl QdmApp {
                 handlers::navigation::handle_downloads_loaded(self, result)
             }
             Message::TorrentEngineInitialized => {
-                // The engine was initialized, we can safely synchronize queue or do nothing
-                Task::none()
+                // The torrent engine just finished initializing. Any torrent downloads
+                // that were in Downloading state when handle_downloads_loaded ran may
+                // have failed to start because the engine wasn't ready yet. Kick them off now.
+                let mut tasks = Vec::new();
+                for item in &self.downloads {
+                    if matches!(item.state, crate::models::download::DownloadState::Downloading { .. }) {
+                        if let crate::models::download::DownloadType::Torrent(_) = &item.download_type {
+                            let item_clone = item.clone();
+                            let engine = self.engine.clone();
+                            let play_media = self.settings.torrent_play_media_while_downloading;
+                            tasks.push(Task::perform(
+                                async move {
+                                    engine.start_or_resume(item_clone, play_media).await;
+                                    Ok(())
+                                },
+                                |_: Result<(), String>| Message::Tick,
+                            ));
+                        }
+                    }
+                }
+                if tasks.is_empty() {
+                    Task::none()
+                } else {
+                    Task::batch(tasks)
+                }
             }
             Message::DownloadSaved(result) => {
                 handlers::downloads::handle_download_saved(self, result)

@@ -322,7 +322,8 @@ where
     let actions_row: Element<Message> = match &item.state {
         DownloadState::FetchingMetadata
         | DownloadState::Downloading { .. }
-        | DownloadState::WaitingForNetwork { .. } => {
+        | DownloadState::WaitingForNetwork { .. }
+        | DownloadState::Checking { .. } => {
             let pause_btn = button(icon(icons::ICON_PAUSE).size(14))
                 .style(styles::icon_button_style)
                 .on_press(on_toggle_pause(item_id));
@@ -522,6 +523,20 @@ where
 
             (bar_c, size_det, Some(speed_col))
         }
+        DownloadState::Checking { progress_pct, .. } => (
+            colors::WARNING,
+            item.formatted_size_progress(),
+            Some(
+                column![
+                    text(format!("Verifying {}%", progress_pct))
+                        .size(13)
+                        .font(styles::BOLD_FONT)
+                        .color(colors::WARNING),
+                    text("Checking file integrity").size(11).color(colors::TEXT_MUTED),
+                ]
+                .align_x(Alignment::End),
+            ),
+        ),
         DownloadState::Completed => (
             colors::SUCCESS,
             format!("{}  ·  Completed", item.formatted_total_size()),

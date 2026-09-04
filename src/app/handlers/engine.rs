@@ -158,12 +158,7 @@ fn handle_torrent_progress_updated(
             return Task::none();
         }
 
-        if let Some(total) = item.total_bytes {
-            if total > 0 && downloaded_bytes >= total {
-                item.state = DownloadState::Completed;
-                return Task::none();
-            }
-        }
+        // Completion is handled exclusively by DownloadCompleted events from the engine.
 
         item.state = DownloadState::Downloading {
             downloaded_bytes,

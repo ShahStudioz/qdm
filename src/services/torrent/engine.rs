@@ -43,7 +43,7 @@ impl TorrentEngine {
     pub async fn probe_metadata(&self, magnet: &str) -> Result<AddTorrentResponse, String> {
         let opts = AddTorrentOptions {
             list_only: true,
-            overwrite: true,
+            overwrite: false,
             ..Default::default()
         };
 
@@ -73,8 +73,9 @@ impl TorrentEngine {
 
                 let handle_clone = handle.clone();
                 let event_tx = self.event_tx.clone();
+                let initial_downloaded = item.downloaded_bytes;
                 let new_monitor = tokio::spawn(async move {
-                    Self::run_monitor_loop(item_id, handle_clone, event_tx).await;
+                    Self::run_monitor_loop(item_id, handle_clone, event_tx, initial_downloaded).await;
                 });
 
                 *monitor_task = new_monitor;
@@ -145,15 +146,45 @@ impl TorrentEngine {
             .session
             .add_torrent(add_torrent, Some(opts))
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                println!("[QDM Torrent] add_torrent failed for item {}: {}", item_id, e);
+                e.to_string()
+            })?;
 
         match response {
-            AddTorrentResponse::Added(torrent_id, handle)
-            | AddTorrentResponse::AlreadyManaged(torrent_id, handle) => {
+            AddTorrentResponse::Added(torrent_id, handle) => {
                 let handle_clone = handle.clone();
                 let event_tx = self.event_tx.clone();
+                let initial_downloaded = item.downloaded_bytes;
                 let monitor_task = tokio::spawn(async move {
-                    Self::run_monitor_loop(item_id, handle_clone, event_tx).await;
+                    Self::run_monitor_loop(item_id, handle_clone, event_tx, initial_downloaded).await;
+                });
+
+                self.handles
+                    .write()
+                    .await
+                    .insert(item_id, (torrent_id, handle, monitor_task));
+
+                let _ = self.event_tx.send(EngineUiEvent::StateChanged {
+                    id: item_id,
+                    state: DownloadState::Downloading {
+                        downloaded_bytes: item.downloaded_bytes,
+                        total_bytes: item.total_bytes,
+                        speed_bps: 0,
+                        eta_secs: None,
+                    },
+                });
+            }
+            AddTorrentResponse::AlreadyManaged(torrent_id, handle) => {
+                // The torrent was already in the librqbit session (from persistence).
+                // It's likely paused/stopped — we must explicitly unpause it.
+                let _ = self.session.unpause(&handle).await;
+
+                let handle_clone = handle.clone();
+                let event_tx = self.event_tx.clone();
+                let initial_downloaded = item.downloaded_bytes;
+                let monitor_task = tokio::spawn(async move {
+                    Self::run_monitor_loop(item_id, handle_clone, event_tx, initial_downloaded).await;
                 });
 
                 self.handles
@@ -184,9 +215,10 @@ impl TorrentEngine {
         item_id: usize,
         handle: Arc<ManagedTorrent>,
         event_tx: broadcast::Sender<EngineUiEvent>,
+        initial_downloaded_bytes: u64,
     ) {
         let mut last_fetched_bytes = 0;
-        let mut smooth_downloaded_bytes = 0;
+        let mut smooth_downloaded_bytes = initial_downloaded_bytes;
         
         let mut speed_meter = crate::services::http::task::SlidingSpeedMeter::new(
             std::time::Duration::from_millis(2500)
@@ -195,6 +227,7 @@ impl TorrentEngine {
             std::time::Duration::from_millis(2500)
         );
         let mut last_uploaded_bytes = 0;
+        let mut has_gone_live = false; // tracks if we've completed hash verification
 
         let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(250));
         loop {
@@ -202,10 +235,45 @@ impl TorrentEngine {
 
             let stats = handle.stats();
             
-            // Calculate a smooth downloaded bytes counter using fetched_bytes delta
+            // Detect the hash verification phase:
+            // stats.live is None while librqbit is checking existing file integrity.
+            // During this phase, progress_bytes climbs 0→total as pieces are verified,
+            // then drops to the actual verified amount once checking finishes.
+            if stats.live.is_none() && stats.total_bytes > 0 {
+                // We're in the checking phase — show verification progress
+                let check_pct = ((stats.progress_bytes as f64 / stats.total_bytes as f64) * 100.0).min(100.0) as u8;
+                let _ = event_tx.send(EngineUiEvent::StateChanged {
+                    id: item_id,
+                    state: DownloadState::Checking {
+                        progress_pct: check_pct,
+                        downloaded_bytes: initial_downloaded_bytes,
+                        total_bytes: Some(stats.total_bytes),
+                    },
+                });
+                continue; // Don't update smooth_downloaded_bytes during check
+            }
+
+            if stats.live.is_some() && !has_gone_live {
+                // First time going live after hash check — reset to verified value
+                has_gone_live = true;
+                smooth_downloaded_bytes = stats.progress_bytes;
+                last_fetched_bytes = 0;
+                last_uploaded_bytes = 0;
+                // Transition back to Downloading state
+                let _ = event_tx.send(EngineUiEvent::StateChanged {
+                    id: item_id,
+                    state: DownloadState::Downloading {
+                        downloaded_bytes: stats.progress_bytes,
+                        total_bytes: if stats.total_bytes > 0 { Some(stats.total_bytes) } else { None },
+                        speed_bps: 0,
+                        eta_secs: None,
+                    },
+                });
+            }
+
+            // Normal progress tracking (only when live)
             let progress = stats.progress_bytes;
             if smooth_downloaded_bytes > progress && smooth_downloaded_bytes - progress > 10 * 1024 * 1024 {
-                // Fastresume check failed or massive regression, reset smooth counter
                 smooth_downloaded_bytes = progress;
             } else {
                 smooth_downloaded_bytes = smooth_downloaded_bytes.max(progress);
@@ -228,7 +296,11 @@ impl TorrentEngine {
                 }
             }
             
-            let downloaded_bytes = smooth_downloaded_bytes;
+            let downloaded_bytes = if stats.total_bytes > 0 {
+                smooth_downloaded_bytes.min(stats.total_bytes)
+            } else {
+                smooth_downloaded_bytes
+            };
 
             let total_bytes = if stats.total_bytes > 0 {
                 Some(stats.total_bytes)
@@ -258,8 +330,14 @@ impl TorrentEngine {
                 });
                 break;
             }
-
-            if stats.finished || (total_bytes.is_some() && downloaded_bytes >= total_bytes.unwrap()) {
+            // Completion check: only trust the hash-verified progress_bytes from librqbit,
+            // NOT our smooth UI counter. stats.finished can briefly be true from stale
+            // fastresume data before hash check corrects it, so also verify progress.
+            let truly_finished = stats.finished 
+                && stats.total_bytes > 0 
+                && stats.progress_bytes >= stats.total_bytes;
+            
+            if truly_finished {
                 let _ = event_tx.send(EngineUiEvent::TorrentProgressUpdated {
                     id: item_id,
                     downloaded_bytes: total_bytes.unwrap_or(downloaded_bytes),

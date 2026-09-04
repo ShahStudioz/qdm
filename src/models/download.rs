@@ -52,6 +52,13 @@ pub enum DownloadState {
         speed_bps: u64,
         eta_secs: Option<u64>,
     },
+    /// Torrent hash verification in progress after resume.
+    Checking {
+        /// Verification progress as a percentage (0–100).
+        progress_pct: u8,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
+    },
     Completed,
     Paused {
         downloaded_bytes: u64,
@@ -318,6 +325,11 @@ impl DownloadItem {
                 total_bytes,
             }
             | DownloadState::Failed {
+                downloaded_bytes,
+                total_bytes,
+                ..
+            }
+            | DownloadState::Checking {
                 downloaded_bytes,
                 total_bytes,
                 ..

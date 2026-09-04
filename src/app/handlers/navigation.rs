@@ -72,10 +72,15 @@ pub(crate) fn handle_downloads_loaded(
         Ok(loaded_items) => {
             app.downloads = loaded_items;
 
-            // Automatically resume any downloads that were in active Downloading state
+            // Automatically resume HTTP downloads that were in active Downloading state.
+            // Torrent downloads are NOT started here — they are handled by
+            // TorrentEngineInitialized to avoid a race where the engine isn't ready yet.
             let mut auto_resume_tasks = Vec::new();
             for item in &app.downloads {
                 if matches!(item.state, DownloadState::Downloading { .. }) {
+                    if let crate::models::download::DownloadType::Torrent(_) = &item.download_type {
+                        continue; // Skip torrents — handled by TorrentEngineInitialized
+                    }
                     let item_clone = item.clone();
                     let engine = app.engine.clone();
                     let play_media = app.settings.torrent_play_media_while_downloading;
