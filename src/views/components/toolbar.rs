@@ -1,13 +1,55 @@
 use iced::widget::{button, column, container, row, text, text_input, Space};
 use iced::{Alignment, Element, Length};
 use crate::icons::{self, icon};
+use crate::models::download::format_speed_parts;
 use crate::theme::{colors, styles};
+
+fn speed_item<'a, Message>(
+    icon_char: char,
+    bytes_bps: u64,
+) -> Element<'a, Message>
+where
+    Message: 'a + Clone,
+{
+    let (num, unit) = format_speed_parts(bytes_bps);
+
+    let speed_icon = icon(icon_char).size(11).color(colors::PRIMARY);
+
+    let num_container = container(
+        text(num)
+            .size(13)
+            .font(styles::BOLD_FONT)
+            .color(colors::TEXT_PRIMARY),
+    )
+    .width(Length::Fixed(46.0))
+    .align_x(Alignment::End);
+
+    let unit_container = container(
+        text(unit)
+            .size(12)
+            .font(styles::BOLD_FONT)
+            .color(colors::PRIMARY),
+    )
+    .width(Length::Fixed(36.0))
+    .align_x(Alignment::Start);
+
+    row![
+        speed_icon,
+        Space::with_width(4),
+        num_container,
+        Space::with_width(2),
+        unit_container,
+    ]
+    .align_y(Alignment::Center)
+    .into()
+}
 
 pub fn toolbar_view<'a, Message>(
     title: &'a str,
     search_text: &'a str,
     active_count: usize,
-    total_speed: impl Into<String>,
+    download_speed_bps: u64,
+    upload_speed_bps: u64,
     is_menu_open: bool,
     on_search_changed: impl Fn(String) -> Message + 'a,
     on_add_url_pressed: Message,
@@ -43,10 +85,31 @@ where
     });
 
     let metric_header = text("Active / Speed").size(10).color(colors::TEXT_MUTED);
+
+    let active_widget = container(
+        text(format!("{} Active", active_count))
+            .size(13)
+            .font(styles::BOLD_FONT)
+            .color(colors::TEXT_PRIMARY),
+    )
+    .width(Length::Fixed(64.0))
+    .align_x(Alignment::End);
+
+    let dot1 = text("·").size(12).font(styles::BOLD_FONT).color(colors::TEXT_MUTED);
+    let dot2 = text("·").size(12).font(styles::BOLD_FONT).color(colors::TEXT_MUTED);
+
     let metric_val = row![
-        text(format!("{} Active  ·  ", active_count)).size(13).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY),
-        text(total_speed.into()).size(13).font(styles::BOLD_FONT).color(colors::PRIMARY),
-    ];
+        active_widget,
+        Space::with_width(6),
+        dot1,
+        Space::with_width(6),
+        speed_item(icons::ICON_DOWNLOAD, download_speed_bps),
+        Space::with_width(6),
+        dot2,
+        Space::with_width(6),
+        speed_item(icons::ICON_UPLOAD, upload_speed_bps),
+    ]
+    .align_y(Alignment::Center);
 
     let speed_badge = column![metric_header, metric_val].spacing(1).align_x(Alignment::End);
 

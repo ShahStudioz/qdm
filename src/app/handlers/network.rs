@@ -57,6 +57,44 @@ pub(crate) fn handle_connectivity_result(app: &mut QdmApp, is_online: bool) -> T
                 Task::batch(resume_tasks),
             ]);
         }
+    } else {
+        let mut pause_tasks = Vec::new();
+        for item in &mut app.downloads {
+            if matches!(
+                item.state,
+                DownloadState::Downloading { .. } | DownloadState::FetchingMetadata
+            ) {
+                println!(
+                    "[QDM Network] Connectivity lost! Setting download {} ({}) to WaitingForNetwork...",
+                    item.id, item.filename
+                );
+                let total_downloaded = item.downloaded_bytes;
+                item.state = DownloadState::WaitingForNetwork {
+                    downloaded_bytes: total_downloaded,
+                    total_bytes: item.total_bytes,
+                };
+                let id = item.id;
+                let engine = app.engine.clone();
+                pause_tasks.push(Task::perform(
+                    async move {
+                        engine.pause_for_network(id).await;
+                        Ok(())
+                    },
+                    |_: Result<(), String>| Message::Tick,
+                ));
+            }
+        }
+
+        if !pause_tasks.is_empty() {
+            let downloads_clone = app.downloads.clone();
+            return Task::batch([
+                Task::perform(
+                    async move { storage::json_store::save_downloads(&downloads_clone) },
+                    Message::DownloadsPersisted,
+                ),
+                Task::batch(pause_tasks),
+            ]);
+        }
     }
     Task::none()
 }

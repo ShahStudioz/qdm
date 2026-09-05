@@ -84,6 +84,13 @@ impl AppEngine {
         }
     }
 
+    pub async fn pause_for_network(&self, id: usize) {
+        self.http.pause_for_network(id).await;
+        if let Some(engine) = self.torrent.read().await.as_ref() {
+            engine.pause_for_network(id).await;
+        }
+    }
+
     pub async fn cancel(&self, id: usize) {
         self.http.cancel(id).await;
         if let Some(engine) = self.torrent.read().await.as_ref() {

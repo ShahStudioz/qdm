@@ -16,17 +16,15 @@ pub fn download_item_view<'a, Message>(
 where
     Message: 'a + Clone + 'static,
 {
-    let (file_icon_char, icon_color, box_bg) = match item.file_type {
-        FileType::Media => (icons::ICON_DISC, colors::PRIMARY, colors::SURFACE_HIGH),
-        FileType::Archive => (icons::ICON_ZIP, colors::SUCCESS, colors::SURFACE_HIGH),
-        FileType::Code => match item.state {
-            DownloadState::Failed { .. } => {
-                (icons::ICON_DATABASE, colors::ERROR, colors::FAILED_BG)
-            }
-            _ => (icons::ICON_GRID, colors::PRIMARY, colors::SURFACE_HIGH),
-        },
-        FileType::Document | FileType::Other => {
-            (icons::ICON_BOX, colors::TEXT_MUTED, colors::SURFACE_HIGH)
+    let (file_icon_char, icon_color, box_bg) = if item.is_folder() {
+        (icons::ICON_FOLDER, colors::WARNING, colors::SURFACE_HIGH)
+    } else {
+        match item.file_type {
+            FileType::Media => (icons::ICON_MEDIA, colors::PRIMARY, colors::SURFACE_HIGH),
+            FileType::Archive => (icons::ICON_ZIP, colors::SUCCESS, colors::SURFACE_HIGH),
+            FileType::Code => (icons::ICON_CODE, colors::TORRENT, colors::SURFACE_HIGH),
+            FileType::Document => (icons::ICON_DOCUMENT, colors::PRIMARY, colors::SURFACE_HIGH),
+            FileType::Other => (icons::ICON_FILE, colors::TEXT_MUTED, colors::SURFACE_HIGH),
         }
     };
 
@@ -483,7 +481,7 @@ where
             let speed_col = if let Some(torrent) = item.torrent_meta() {
                 column![
                     row![
-                        icon(icons::ICON_ARROW_DOWN).size(10).color(colors::PRIMARY),
+                        icon(icons::ICON_DOWNLOAD).size(10).color(colors::PRIMARY),
                         text(format_speed(*speed_bps))
                             .size(12)
                             .font(styles::BOLD_FONT)

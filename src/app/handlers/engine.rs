@@ -188,6 +188,14 @@ fn handle_state_changed(
         } else {
             item.state = state;
         }
+
+        if matches!(item.state, DownloadState::WaitingForNetwork { .. }) {
+            let downloads_clone = app.downloads.clone();
+            return Task::perform(
+                async move { storage::json_store::save_downloads(&downloads_clone) },
+                Message::DownloadsPersisted,
+            );
+        }
     }
     Task::none()
 }

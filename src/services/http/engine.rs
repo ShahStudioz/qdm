@@ -234,6 +234,14 @@ impl DownloadEngine {
         }
     }
 
+    /// Pauses an active HTTP task specifically due to network loss.
+    pub async fn pause_for_network(&self, id: usize) {
+        let mut tasks = self.active_tasks.lock().await;
+        if let Some(pause_tx) = tasks.remove(&id) {
+            let _ = pause_tx.send(true);
+        }
+    }
+
     /// Cancels a download task and removes it from active registry.
     pub async fn cancel(&self, id: usize) {
         let mut tasks = self.active_tasks.lock().await;

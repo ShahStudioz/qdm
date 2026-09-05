@@ -50,8 +50,8 @@ impl QdmApp {
 
         let scheduled_count = self.downloads.iter().filter(|d| d.is_scheduled).count();
 
-        // --- Aggregate speed for toolbar ---
-        let total_speed_bps: u64 = self
+        // --- Aggregate speeds for toolbar ---
+        let total_download_speed_bps: u64 = self
             .downloads
             .iter()
             .filter_map(|d| match &d.state {
@@ -59,7 +59,17 @@ impl QdmApp {
                 _ => None,
             })
             .sum();
-        let total_speed_str = crate::models::download::format_speed(total_speed_bps);
+
+        let total_upload_speed_bps: u64 = self
+            .downloads
+            .iter()
+            .filter_map(|d| match &d.state {
+                DownloadState::Downloading { .. } => {
+                    d.torrent_meta().map(|t| t.upload_speed_bps)
+                }
+                _ => None,
+            })
+            .sum();
 
         // --- Sidebar ---
         let sidebar = sidebar::sidebar_view(
@@ -86,7 +96,8 @@ impl QdmApp {
             title,
             &self.search_query,
             downloading_count,
-            &total_speed_str,
+            total_download_speed_bps,
+            total_upload_speed_bps,
             self.is_topbar_menu_open,
             Message::SearchChanged,
             Message::AddUrlPressed,

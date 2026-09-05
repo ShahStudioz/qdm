@@ -326,12 +326,16 @@ fn view_scheduled_subtab<'a>(items: Vec<&'a DownloadItem>) -> Element<'a, Settin
         });
 
         // File icon
-        let file_icon = match item.file_type {
-            FileType::Archive => icons::ICON_ZIP,
-            FileType::Media => icons::ICON_DOWNLOADING,
-            FileType::Code => icons::ICON_GRID,
-            FileType::Document => icons::ICON_BOX,
-            FileType::Other => icons::ICON_DISC,
+        let (file_icon, icon_color) = if item.is_folder() {
+            (icons::ICON_FOLDER, colors::WARNING)
+        } else {
+            match item.file_type {
+                FileType::Archive => (icons::ICON_ZIP, colors::SUCCESS),
+                FileType::Media => (icons::ICON_MEDIA, colors::PRIMARY),
+                FileType::Code => (icons::ICON_CODE, colors::TORRENT),
+                FileType::Document => (icons::ICON_DOCUMENT, colors::PRIMARY),
+                FileType::Other => (icons::ICON_FILE, colors::TEXT_MUTED),
+            }
         };
 
         // File Info
@@ -415,7 +419,7 @@ fn view_scheduled_subtab<'a>(items: Vec<&'a DownloadItem>) -> Element<'a, Settin
         let row_card = container(
             row![
                 rank_badge,
-                icon(file_icon).size(16).color(colors::PRIMARY),
+                icon(file_icon).size(16).color(icon_color),
                 info_box,
                 status_badge,
                 Space::with_width(12),

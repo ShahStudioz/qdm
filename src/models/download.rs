@@ -436,6 +436,15 @@ impl DownloadItem {
             DownloadType::Torrent(_) => 0,
         }
     }
+
+    pub fn is_folder(&self) -> bool {
+        match &self.download_type {
+            DownloadType::Torrent(torrent) => {
+                torrent.is_folder || torrent.selected_files.as_ref().map(|f| f.len() > 1).unwrap_or(false)
+            }
+            DownloadType::Http(_) => false,
+        }
+    }
 }
 
 pub fn format_bytes(bytes: u64) -> String {
@@ -461,6 +470,31 @@ pub fn format_speed(bytes_per_sec: u64) -> String {
     format!("{}/s", format_bytes(bytes_per_sec))
 }
 
+/// Formats transfer speed (bytes per second) into (number_str, unit_str).
+///
+/// Formats the numeric portion with 1 decimal place (e.g., "12.3", "0.0", "999.9")
+/// to ensure consistent spacing for 3 digits and 1 decimal digit (XXX.X) plus unit.
+pub fn format_speed_parts(bytes_per_sec: u64) -> (String, &'static str) {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    const TB: u64 = GB * 1024;
+
+    if bytes_per_sec >= TB {
+        (format!("{:.1}", bytes_per_sec as f64 / TB as f64), "TB/s")
+    } else if bytes_per_sec >= GB {
+        (format!("{:.1}", bytes_per_sec as f64 / GB as f64), "GB/s")
+    } else if bytes_per_sec >= MB {
+        (format!("{:.1}", bytes_per_sec as f64 / MB as f64), "MB/s")
+    } else if bytes_per_sec >= KB {
+        (format!("{:.1}", bytes_per_sec as f64 / KB as f64), "KB/s")
+    } else if bytes_per_sec > 0 {
+        (format!("{:.1}", bytes_per_sec as f64), "B/s")
+    } else {
+        ("0.0".to_string(), "B/s")
+    }
+}
+
 pub fn format_eta(eta_secs: u64) -> String {
     if eta_secs == 0 {
         "0s".to_string()
@@ -476,3 +510,83 @@ pub fn format_eta(eta_secs: u64) -> String {
         format!("{}h {:02}m", hours, mins)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_speed_parts() {
+        assert_eq!(format_speed_parts(0), ("0.0".to_string(), "B/s"));
+        assert_eq!(format_speed_parts(500), ("500.0".to_string(), "B/s"));
+        assert_eq!(format_speed_parts(1024), ("1.0".to_string(), "KB/s"));
+        assert_eq!(format_speed_parts(1536), ("1.5".to_string(), "KB/s"));
+        assert_eq!(format_speed_parts(100 * 1024), ("100.0".to_string(), "KB/s"));
+        assert_eq!(format_speed_parts(10 * 1024 * 1024), ("10.0".to_string(), "MB/s"));
+        assert_eq!(format_speed_parts(157286400), ("150.0".to_string(), "MB/s"));
+        assert_eq!(format_speed_parts(1610612736), ("1.5".to_string(), "GB/s"));
+    }
+
+    #[test]
+    fn test_is_folder() {
+        let http_item = DownloadItem {
+            id: 1,
+            filename: "file.mp4".to_string(),
+            download_type: DownloadType::Http(HttpMetadata {
+                primary_url: DownloadUrl::new("http://example.com/file.mp4"),
+                mirror_urls: vec![],
+                resumable: true,
+                etag: None,
+                last_modified: None,
+                chunks: vec![],
+            }),
+            save_path: "".to_string(),
+            downloaded_bytes: 0,
+            total_bytes: None,
+            state: DownloadState::Completed,
+            file_type: FileType::Media,
+            is_scheduled: false,
+            max_connections: 8,
+            speed_limit_bps: None,
+            sha256_hash: None,
+            created_at: 0,
+            updated_at: 0,
+            completed_at: None,
+        };
+        assert!(!http_item.is_folder());
+
+        let mut torrent_item = DownloadItem {
+            id: 2,
+            filename: "Series (Season 1)".to_string(),
+            download_type: DownloadType::Torrent(TorrentMetadata {
+                magnet_uri: "magnet:?...".to_string(),
+                info_hash: None,
+                selected_files: Some(vec![0, 1, 2]),
+                is_folder: true,
+                peers_connected: 0,
+                seeds_connected: 0,
+                upload_speed_bps: 0,
+            }),
+            save_path: "".to_string(),
+            downloaded_bytes: 0,
+            total_bytes: None,
+            state: DownloadState::Completed,
+            file_type: FileType::Media,
+            is_scheduled: false,
+            max_connections: 8,
+            speed_limit_bps: None,
+            sha256_hash: None,
+            created_at: 0,
+            updated_at: 0,
+            completed_at: None,
+        };
+        assert!(torrent_item.is_folder());
+
+        if let DownloadType::Torrent(ref mut t) = torrent_item.download_type {
+            t.is_folder = false;
+            t.selected_files = Some(vec![0]);
+        }
+        assert!(!torrent_item.is_folder());
+    }
+}
+

@@ -10,6 +10,7 @@ use librqbit::{
 
 use crate::models::download::{DownloadItem, DownloadState};
 use crate::services::http::engine::EngineUiEvent;
+use crate::services::shared::network::connectivity::ConnectivityMonitor;
 
 /// The internal Torrent engine wrapping librqbit
 pub struct TorrentEngine {
@@ -228,6 +229,7 @@ impl TorrentEngine {
         );
         let mut last_uploaded_bytes = 0;
         let mut has_gone_live = false; // tracks if we've completed hash verification
+        let mut zero_speed_ticks: u32 = 0;
 
         let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(250));
         loop {
@@ -323,6 +325,30 @@ impl TorrentEngine {
                 (0, 0, 0, 0, None)
             };
 
+            if has_gone_live && speed_bps == 0 && upload_speed_bps == 0 && peers == 0 {
+                zero_speed_ticks += 1;
+                // If completely idle for ~2 seconds (8 * 250ms ticks), check if network dropped
+                if zero_speed_ticks >= 8 {
+                    zero_speed_ticks = 0;
+                    if !ConnectivityMonitor::is_online().await {
+                        println!(
+                            "[QDM Torrent {}] Network lost detected in monitor loop. Emitting WaitingForNetwork...",
+                            item_id
+                        );
+                        let _ = event_tx.send(EngineUiEvent::StateChanged {
+                            id: item_id,
+                            state: DownloadState::WaitingForNetwork {
+                                downloaded_bytes,
+                                total_bytes,
+                            },
+                        });
+                        break;
+                    }
+                }
+            } else {
+                zero_speed_ticks = 0;
+            }
+
             if let Some(err) = stats.error {
                 let _ = event_tx.send(EngineUiEvent::DownloadFailed {
                     id: item_id,
@@ -382,6 +408,16 @@ impl TorrentEngine {
                     total_bytes: if stats.total_bytes > 0 { Some(stats.total_bytes) } else { None },
                 },
             });
+        }
+    }
+
+    /// Pauses an active torrent specifically due to network loss.
+    /// Aborts the monitor task and pauses the session handle, without emitting DownloadState::Paused.
+    pub async fn pause_for_network(&self, id: usize) {
+        let handles_guard = self.handles.read().await;
+        if let Some((_, handle, monitor_task)) = handles_guard.get(&id) {
+            monitor_task.abort();
+            let _ = self.session.pause(handle).await;
         }
     }
 
