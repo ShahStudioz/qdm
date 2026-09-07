@@ -61,6 +61,7 @@ pub enum Message {
     CopyLink(usize),
     OpenFolder(usize),
     OpenMirrorsModal(usize),
+    ItemClicked(usize),
 
     // --- Queue Management ---
     MoveQueueItemUp(usize),
@@ -108,6 +109,7 @@ pub struct QdmApp {
     // --- Transient UI State ---
     /// IDs of download items whose link was recently copied (for icon flash).
     pub(crate) copied_link_ids: std::collections::HashSet<usize>,
+    pub(crate) last_item_click: Option<(usize, std::time::Instant)>,
 }
 
 impl Default for QdmApp {
@@ -126,6 +128,7 @@ impl Default for QdmApp {
             delete_dialog: delete_dialogue::DeleteDialogModel::default(),
             engine: crate::services::engine::AppEngine::new(crate::services::http::DownloadEngine::new()),
             copied_link_ids: std::collections::HashSet::new(),
+            last_item_click: None,
         }
     }
 }
@@ -303,6 +306,7 @@ impl QdmApp {
             Message::OpenMirrorsModal(id) => {
                 handlers::downloads::handle_open_mirrors_modal(self, id)
             }
+            Message::ItemClicked(id) => handlers::downloads::handle_item_clicked(self, id),
 
             // --- Queue Management ---
             Message::MoveQueueItemUp(id) => {

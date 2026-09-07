@@ -1,7 +1,7 @@
 use crate::icons::{self, icon};
 use crate::models::download::{format_eta, format_speed, DownloadItem, DownloadState, FileType};
 use crate::theme::{colors, styles};
-use iced::widget::{button, column, container, progress_bar, row, text, Space};
+use iced::widget::{button, column, container, mouse_area, progress_bar, row, text, Space};
 use iced::{Alignment, Element, Length};
 
 pub fn download_item_view<'a, Message>(
@@ -12,6 +12,7 @@ pub fn download_item_view<'a, Message>(
     on_open_folder: impl Fn(usize) -> Message + 'a,
     on_open_mirrors: impl Fn(usize) -> Message + 'a,
     on_copy_link: impl Fn(usize) -> Message + 'a,
+    on_item_click: impl Fn(usize) -> Message + 'a,
 ) -> Element<'a, Message>
 where
     Message: 'a + Clone + 'static,
@@ -24,7 +25,13 @@ where
             FileType::Archive => (icons::ICON_ZIP, colors::SUCCESS, colors::SURFACE_HIGH),
             FileType::Code => (icons::ICON_CODE, colors::TORRENT, colors::SURFACE_HIGH),
             FileType::Document => (icons::ICON_DOCUMENT, colors::PRIMARY, colors::SURFACE_HIGH),
-            FileType::Other => (icons::ICON_FILE, colors::TEXT_MUTED, colors::SURFACE_HIGH),
+            FileType::Other => {
+                if item.torrent_meta().is_some() {
+                    (icons::ICON_MAGNET, colors::TORRENT, colors::SURFACE_HIGH)
+                } else {
+                    (icons::ICON_FILE, colors::TEXT_MUTED, colors::SURFACE_HIGH)
+                }
+            }
         }
     };
 
@@ -53,9 +60,7 @@ where
     if item.torrent_meta().is_some() {
         let torrent_badge = container(
             row![
-                icon(icons::ICON_MAGNET)
-                    .size(10)
-                    .color(colors::BACKGROUND),
+                icon(icons::ICON_MAGNET).size(10).color(colors::BACKGROUND),
                 text("TORRENT")
                     .size(10)
                     .font(styles::BOLD_FONT)
@@ -129,9 +134,7 @@ where
         DownloadState::Queued => {
             let badge = container(
                 row![
-                    icon(icons::ICON_LIST_ORDER)
-                        .size(10)
-                        .color(colors::WARNING),
+                    icon(icons::ICON_LIST_ORDER).size(10).color(colors::WARNING),
                     text("QUEUED")
                         .size(10)
                         .font(styles::BOLD_FONT)
@@ -390,15 +393,25 @@ where
         .font(styles::MONO_FONT)
         .color(colors::TEXT_MUTED);
 
-    let copy_icon_char = if is_copied { icons::ICON_CHECK } else { icons::ICON_COPY };
-    let copy_icon_color = if is_copied { colors::SUCCESS } else { colors::TEXT_MUTED };
-    
+    let copy_icon_char = if is_copied {
+        icons::ICON_CHECK
+    } else {
+        icons::ICON_COPY
+    };
+    let copy_icon_color = if is_copied {
+        colors::SUCCESS
+    } else {
+        colors::TEXT_MUTED
+    };
+
     let copy_btn = button(icon(copy_icon_char).size(12).color(copy_icon_color))
         .style(styles::icon_button_style)
         .padding(0)
         .on_press(on_copy_link(item.id));
 
-    let url_row = row![copy_btn, url_text].spacing(6).align_y(Alignment::Center);
+    let url_row = row![copy_btn, url_text]
+        .spacing(6)
+        .align_y(Alignment::Center);
 
     let second_row_col: Element<Message> = if let DownloadState::Failed { error, .. } = &item.state
     {
@@ -456,7 +469,9 @@ where
                         .size(13)
                         .font(styles::BOLD_FONT)
                         .color(colors::PRIMARY),
-                    text("Waiting for window").size(11).color(colors::TEXT_MUTED),
+                    text("Waiting for window")
+                        .size(11)
+                        .color(colors::TEXT_MUTED),
                 ]
                 .align_x(Alignment::End),
             ),
@@ -470,7 +485,12 @@ where
 
             let size_det = if let Some(torrent) = item.torrent_meta() {
                 if torrent.peers_connected > 0 || torrent.seeds_connected > 0 {
-                    format!("{} · {} peers · {} seeds", item.formatted_size_progress(), torrent.peers_connected, torrent.seeds_connected)
+                    format!(
+                        "{} · {} peers · {} seeds",
+                        item.formatted_size_progress(),
+                        torrent.peers_connected,
+                        torrent.seeds_connected
+                    )
                 } else {
                     item.formatted_size_progress()
                 }
@@ -530,7 +550,9 @@ where
                         .size(13)
                         .font(styles::BOLD_FONT)
                         .color(colors::WARNING),
-                    text("Checking file integrity").size(11).color(colors::TEXT_MUTED),
+                    text("Checking file integrity")
+                        .size(11)
+                        .color(colors::TEXT_MUTED),
                 ]
                 .align_x(Alignment::End),
             ),
@@ -633,5 +655,8 @@ where
             _ => styles::card_style(theme),
         });
 
-    card_container.into()
+    let item_id = item.id;
+    mouse_area(card_container)
+        .on_press(on_item_click(item_id))
+        .into()
 }

@@ -227,3 +227,54 @@ pub fn pick_list_menu_style(_theme: &Theme) -> iced::overlay::menu::Style {
         selected_background: Background::Color(colors::PRIMARY),
     }
 }
+
+// --- Scrollable Styles ---
+
+pub fn scrollable_style(
+    _theme: &Theme,
+    status: iced::widget::scrollable::Status,
+) -> iced::widget::scrollable::Style {
+    let scroller_color = match status {
+        iced::widget::scrollable::Status::Hovered { .. }
+        | iced::widget::scrollable::Status::Dragged { .. } => colors::PRIMARY_HOVER,
+        iced::widget::scrollable::Status::Active { .. } => colors::PRIMARY,
+    };
+
+    iced::widget::scrollable::Style {
+        container: iced::widget::container::Style::default(),
+        vertical_rail: iced::widget::scrollable::Rail {
+            background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.04))),
+            border: Border {
+                color: Color::TRANSPARENT,
+                width: 0.0,
+                radius: 4.0.into(),
+            },
+            scroller: iced::widget::scrollable::Scroller {
+                color: scroller_color,
+                border: Border {
+                    color: Color::TRANSPARENT,
+                    width: 0.0,
+                    radius: 4.0.into(),
+                },
+            },
+        },
+        horizontal_rail: iced::widget::scrollable::Rail {
+            background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.04))),
+            border: Border {
+                color: Color::TRANSPARENT,
+                width: 0.0,
+                radius: 4.0.into(),
+            },
+            scroller: iced::widget::scrollable::Scroller {
+                color: scroller_color,
+                border: Border {
+                    color: Color::TRANSPARENT,
+                    width: 0.0,
+                    radius: 4.0.into(),
+                },
+            },
+        },
+        gap: None,
+    }
+}
+

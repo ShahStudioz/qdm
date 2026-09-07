@@ -883,10 +883,24 @@ pub fn extract_filename(url_str: &str, content_disposition: Option<&str>) -> Str
     }
 
     if let Ok(url) = reqwest::Url::parse(url_str) {
+        if url.scheme() == "magnet" {
+            for (k, v) in url.query_pairs() {
+                if k == "dn" && !v.trim().is_empty() {
+                    return v.trim().to_string();
+                }
+            }
+        }
+        for (k, v) in url.query_pairs() {
+            let k_lower = k.to_lowercase();
+            if (k_lower == "filename" || k_lower == "file" || k_lower == "name") && !v.trim().is_empty() {
+                return v.trim().to_string();
+            }
+        }
         if let Some(segments) = url.path_segments() {
             if let Some(last) = segments.last() {
-                if !last.is_empty() {
-                    return last.to_string();
+                let trimmed = last.trim();
+                if !trimmed.is_empty() {
+                    return trimmed.to_string();
                 }
             }
         }
@@ -899,5 +913,63 @@ pub fn extract_filename(url_str: &str, content_disposition: Option<&str>) -> Str
         }
     }
 
-    "download.file".to_string()
+    if url_str.starts_with("magnet:") {
+        "Torrent Download".to_string()
+    } else {
+        "download.file".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_filename_http_path() {
+        assert_eq!(
+            extract_filename("https://example.com/files/document.pdf", None),
+            "document.pdf"
+        );
+    }
+
+    #[test]
+    fn test_extract_filename_magnet_dn() {
+        assert_eq!(
+            extract_filename(
+                "magnet:?xt=urn:btih:c12fe1c06bba254a70f64330b7a80f92ae54cb8b&dn=Big+Buck+Bunny.mp4",
+                None
+            ),
+            "Big Buck Bunny.mp4"
+        );
+    }
+
+    #[test]
+    fn test_extract_filename_magnet_no_dn() {
+        assert_eq!(
+            extract_filename(
+                "magnet:?xt=urn:btih:c12fe1c06bba254a70f64330b7a80f92ae54cb8b",
+                None
+            ),
+            "Torrent Download"
+        );
+    }
+
+    #[test]
+    fn test_extract_filename_query_param() {
+        assert_eq!(
+            extract_filename("https://example.com/api?file=report.xlsx", None),
+            "report.xlsx"
+        );
+    }
+
+    #[test]
+    fn test_extract_filename_content_disposition() {
+        assert_eq!(
+            extract_filename(
+                "https://example.com/download",
+                Some("attachment; filename=\"custom_name.zip\"")
+            ),
+            "custom_name.zip"
+        );
+    }
 }

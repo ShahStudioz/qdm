@@ -334,7 +334,13 @@ fn view_scheduled_subtab<'a>(items: Vec<&'a DownloadItem>) -> Element<'a, Settin
                 FileType::Media => (icons::ICON_MEDIA, colors::PRIMARY),
                 FileType::Code => (icons::ICON_CODE, colors::TORRENT),
                 FileType::Document => (icons::ICON_DOCUMENT, colors::PRIMARY),
-                FileType::Other => (icons::ICON_FILE, colors::TEXT_MUTED),
+                FileType::Other => {
+                    if item.torrent_meta().is_some() {
+                        (icons::ICON_MAGNET, colors::TORRENT)
+                    } else {
+                        (icons::ICON_FILE, colors::TEXT_MUTED)
+                    }
+                }
             }
         };
 
@@ -436,6 +442,7 @@ fn view_scheduled_subtab<'a>(items: Vec<&'a DownloadItem>) -> Element<'a, Settin
     }
 
     scrollable(container(list_col).padding([16, 24]))
+        .style(styles::scrollable_style)
         .width(Length::Fill)
         .into()
 }

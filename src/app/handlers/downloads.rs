@@ -178,6 +178,51 @@ pub(crate) fn handle_open_folder(app: &mut QdmApp, id: usize) -> Task<Message> {
     Task::none()
 }
 
+/// Handles click on a download item card, detecting double-clicks (within 500ms) to open the item.
+pub(crate) fn handle_item_clicked(app: &mut QdmApp, id: usize) -> Task<Message> {
+    let now = std::time::Instant::now();
+    if let Some((last_id, last_time)) = app.last_item_click {
+        if last_id == id && now.duration_since(last_time) <= std::time::Duration::from_millis(500) {
+            app.last_item_click = None;
+            return handle_open_item(app, id);
+        }
+    }
+    app.last_item_click = Some((id, now));
+    Task::none()
+}
+
+/// Opens the downloaded file (or folder) using the platform's default application or file manager.
+pub(crate) fn handle_open_item(app: &mut QdmApp, id: usize) -> Task<Message> {
+    if let Some(item) = app.downloads.iter().find(|d| d.id == id) {
+        let full_path = std::path::PathBuf::from(&item.save_path).join(&item.filename);
+        let target_path = if full_path.exists() {
+            full_path
+        } else {
+            std::path::PathBuf::from(&item.save_path)
+        };
+
+        #[cfg(target_os = "windows")]
+        {
+            let _ = std::process::Command::new("cmd")
+                .args(["/C", "start", "", &target_path.to_string_lossy()])
+                .spawn();
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::process::Command::new("open")
+                .arg(&target_path)
+                .spawn();
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let _ = std::process::Command::new("xdg-open")
+                .arg(&target_path)
+                .spawn();
+        }
+    }
+    Task::none()
+}
+
 /// Copies the download URL to clipboard and marks the item as recently copied
 /// so the UI can flash a checkmark icon for 2 seconds.
 pub(crate) fn handle_copy_link(app: &mut QdmApp, id: usize) -> Task<Message> {
@@ -279,17 +324,19 @@ pub(crate) fn handle_background_metadata_fetched(
                             http.last_modified = meta.last_modified;
                         }
 
-                        // Try to improve generic filenames using Content-Disposition
-                        if item.filename == "download.file" {
+                        // Try to improve generic or extensionless filenames using Content-Disposition
+                        let needs_better_name = item.filename == "download.file"
+                            || !item.filename.contains('.');
+                        if needs_better_name {
                             if let Some(ref cd) = meta.content_disposition {
                                 let better_name =
                                     crate::views::dialogues::add_dialogue::extract_filename(item.get_url(), Some(cd));
                                 if better_name != "download.file" {
                                     item.filename = better_name;
-                                    item.file_type = crate::models::download::FileType::from_filename(&item.filename);
                                 }
                             }
                         }
+                        item.file_type = crate::models::download::FileType::from_filename(&item.filename);
                     }
                     crate::services::engine::ProbeResult::Torrent(info) => {
                         item.filename = info.name;
@@ -297,6 +344,18 @@ pub(crate) fn handle_background_metadata_fetched(
                         item.total_bytes = Some(total_size);
                         if let Some(tmeta) = item.torrent_meta_mut() {
                             tmeta.is_folder = info.is_folder;
+                        }
+                        let mut has_media = false;
+                        for f in &info.files {
+                            if crate::models::download::FileType::from_filename(&f.path) == crate::models::download::FileType::Media {
+                                has_media = true;
+                                break;
+                            }
+                        }
+                        if has_media {
+                            item.file_type = crate::models::download::FileType::Media;
+                        } else {
+                            item.file_type = crate::models::download::FileType::from_filename(&item.filename);
                         }
                     }
                 }

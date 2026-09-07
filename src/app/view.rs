@@ -163,6 +163,7 @@ impl QdmApp {
                     Message::OpenFolder,
                     Message::OpenMirrorsModal,
                     Message::CopyLink,
+                    Message::ItemClicked,
                 );
 
                 if let Some(banner) = schedule_banner {
