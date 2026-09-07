@@ -58,13 +58,18 @@ pub fn toolbar_view<'a, Message>(
 where
     Message: 'a + Clone + 'static,
 {
-    let title_text = text(title).size(22).font(styles::BOLD_FONT).color(colors::TEXT_PRIMARY);
+    let title_text = text(title)
+        .size(22)
+        .font(styles::BOLD_FONT)
+        .color(colors::TEXT_PRIMARY)
+        .wrapping(iced::widget::text::Wrapping::None);
+    let title_container = container(title_text).height(Length::Shrink).align_y(Alignment::Center);
 
     let search_icon = icon(icons::ICON_SEARCH).size(14).color(colors::TEXT_MUTED);
     let search_input_widget = text_input("Search downloads...", search_text)
         .on_input(on_search_changed)
         .padding([8, 8])
-        .width(280)
+        .width(Length::Fill)
         .style(styles::transparent_text_input_style);
 
     let search_bar = container(
@@ -72,8 +77,10 @@ where
             .spacing(6)
             .align_y(Alignment::Center)
     )
-    .width(320)
+    .width(Length::FillPortion(3))
+    .max_width(320.0)
     .padding([0, 10])
+    .align_y(Alignment::Center)
     .style(|_| container::Style {
         background: Some(iced::Background::Color(colors::SURFACE_HIGH)),
         border: iced::Border {
@@ -114,7 +121,11 @@ where
     let speed_badge = column![metric_header, metric_val].spacing(1).align_x(Alignment::End);
 
     let add_icon = icon(icons::ICON_PLUS).size(14).color(colors::BACKGROUND);
-    let add_text = text("Add URL").size(14).font(styles::BOLD_FONT).color(colors::BACKGROUND);
+    let add_text = text("Add URL")
+        .size(14)
+        .font(styles::BOLD_FONT)
+        .color(colors::BACKGROUND)
+        .wrapping(iced::widget::text::Wrapping::None);
 
     let add_button = button(
         row![add_icon, add_text]
@@ -141,8 +152,8 @@ where
     .on_press(on_toggle_menu);
 
     let toolbar_row = row![
-        title_text,
-        Space::with_width(Length::Fill),
+        title_container,
+        Space::with_width(Length::FillPortion(1)),
         search_bar,
         Space::with_width(16),
         speed_badge,
@@ -153,12 +164,12 @@ where
         Space::with_width(8),
         menu_btn,
     ]
-    .spacing(4)
     .align_y(Alignment::Center);
 
     let toolbar_container = container(toolbar_row)
         .width(Length::Fill)
         .padding([16, 24])
+        .align_y(Alignment::Center)
         .style(styles::toolbar_style);
 
     toolbar_container.into()

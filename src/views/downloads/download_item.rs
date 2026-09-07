@@ -4,6 +4,54 @@ use crate::theme::{colors, styles};
 use iced::widget::{button, column, container, mouse_area, progress_bar, row, text, Space};
 use iced::{Alignment, Element, Length};
 
+fn make_badge<'a, Message: 'a>(
+    content: impl Into<Element<'a, Message>>,
+    bg_color: iced::Color,
+    border_color: Option<iced::Color>,
+) -> Element<'a, Message> {
+    container(content)
+        .height(Length::Fixed(20.0))
+        .align_y(Alignment::Center)
+        .padding([2, 8])
+        .style(move |_| container::Style {
+            background: Some(iced::Background::Color(bg_color)),
+            border: iced::Border {
+                color: border_color.unwrap_or(iced::Color::TRANSPARENT),
+                width: if border_color.is_some() { 1.0 } else { 0.0 },
+                radius: 10.0.into(),
+            },
+            ..Default::default()
+        })
+        .into()
+}
+
+fn make_limit_badge<'a, Message: 'a>(limit_bps: u64) -> Element<'a, Message> {
+    container(
+        row![
+            icon(icons::ICON_GAUGE).size(10).color(colors::PRIMARY),
+            text(format!("LIMIT {}", format_speed(limit_bps)))
+                .size(9)
+                .font(styles::BOLD_FONT)
+                .color(colors::TEXT_PRIMARY),
+        ]
+        .spacing(4)
+        .align_y(Alignment::Center),
+    )
+    .height(Length::Fixed(20.0))
+    .align_y(Alignment::Center)
+    .padding([2, 6])
+    .style(|_| container::Style {
+        background: Some(iced::Background::Color(colors::SURFACE_HIGH)),
+        border: iced::Border {
+            color: colors::BORDER,
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        ..Default::default()
+    })
+    .into()
+}
+
 pub fn download_item_view<'a, Message>(
     item: &'a DownloadItem,
     is_copied: bool,
@@ -58,7 +106,7 @@ where
     let mut header_left = row![filename_text].spacing(10).align_y(Alignment::Center);
 
     if item.torrent_meta().is_some() {
-        let torrent_badge = container(
+        let torrent_badge = make_badge(
             row![
                 icon(icons::ICON_MAGNET).size(10).color(colors::BACKGROUND),
                 text("TORRENT")
@@ -68,21 +116,14 @@ where
             ]
             .spacing(4)
             .align_y(Alignment::Center),
-        )
-        .padding([2, 8])
-        .style(|_| container::Style {
-            background: Some(iced::Background::Color(colors::TORRENT)),
-            border: iced::Border {
-                radius: 10.0.into(),
-                ..Default::default()
-            },
-            ..Default::default()
-        });
+            colors::TORRENT,
+            None,
+        );
         header_left = header_left.push(torrent_badge);
     }
 
     if item.is_scheduled && !matches!(item.state, DownloadState::Scheduled) {
-        let sched_badge = container(
+        let sched_badge = make_badge(
             row![
                 icon(icons::ICON_SCHEDULED)
                     .size(10)
@@ -94,22 +135,15 @@ where
             ]
             .spacing(4)
             .align_y(Alignment::Center),
-        )
-        .padding([2, 8])
-        .style(|_| container::Style {
-            background: Some(iced::Background::Color(colors::PRIMARY)),
-            border: iced::Border {
-                radius: 10.0.into(),
-                ..Default::default()
-            },
-            ..Default::default()
-        });
+            colors::PRIMARY,
+            None,
+        );
         header_left = header_left.push(sched_badge);
     }
 
     match &item.state {
         DownloadState::FetchingMetadata => {
-            let badge = container(
+            let badge = make_badge(
                 row![
                     icon(icons::ICON_SPINNER).size(10).color(colors::BACKGROUND),
                     text("FETCHING INFO")
@@ -119,20 +153,13 @@ where
                 ]
                 .spacing(4)
                 .align_y(Alignment::Center),
-            )
-            .padding([2, 8])
-            .style(|_| container::Style {
-                background: Some(iced::Background::Color(colors::PRIMARY)),
-                border: iced::Border {
-                    radius: 10.0.into(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            });
+                colors::PRIMARY,
+                None,
+            );
             header_left = header_left.push(badge);
         }
         DownloadState::Queued => {
-            let badge = container(
+            let badge = make_badge(
                 row![
                     icon(icons::ICON_LIST_ORDER).size(10).color(colors::WARNING),
                     text("QUEUED")
@@ -142,21 +169,13 @@ where
                 ]
                 .spacing(4)
                 .align_y(Alignment::Center),
-            )
-            .padding([2, 8])
-            .style(|_| container::Style {
-                background: Some(iced::Background::Color(colors::SURFACE_HIGH)),
-                border: iced::Border {
-                    color: colors::WARNING,
-                    width: 1.0,
-                    radius: 10.0.into(),
-                },
-                ..Default::default()
-            });
+                colors::SURFACE_HIGH,
+                Some(colors::WARNING),
+            );
             header_left = header_left.push(badge);
         }
         DownloadState::Scheduled => {
-            let badge = container(
+            let badge = make_badge(
                 row![
                     icon(icons::ICON_SCHEDULED)
                         .size(10)
@@ -168,56 +187,35 @@ where
                 ]
                 .spacing(4)
                 .align_y(Alignment::Center),
-            )
-            .padding([2, 8])
-            .style(|_| container::Style {
-                background: Some(iced::Background::Color(colors::PRIMARY)),
-                border: iced::Border {
-                    radius: 10.0.into(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            });
+                colors::PRIMARY,
+                None,
+            );
             header_left = header_left.push(badge);
         }
         DownloadState::Completed => {
-            let badge = container(
+            let badge = make_badge(
                 text("COMPLETED")
                     .size(10)
                     .font(styles::BOLD_FONT)
                     .color(colors::BACKGROUND),
-            )
-            .padding([2, 8])
-            .style(|_| container::Style {
-                background: Some(iced::Background::Color(colors::SUCCESS)),
-                border: iced::Border {
-                    radius: 10.0.into(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            });
+                colors::SUCCESS,
+                None,
+            );
             header_left = header_left.push(badge);
         }
         DownloadState::Paused { .. } => {
-            let badge = container(
+            let badge = make_badge(
                 text("PAUSED")
                     .size(10)
                     .font(styles::BOLD_FONT)
                     .color(colors::BACKGROUND),
-            )
-            .padding([2, 8])
-            .style(|_| container::Style {
-                background: Some(iced::Background::Color(colors::WARNING)),
-                border: iced::Border {
-                    radius: 10.0.into(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            });
+                colors::WARNING,
+                None,
+            );
             header_left = header_left.push(badge);
         }
         DownloadState::WaitingForNetwork { .. } => {
-            let badge = container(
+            let badge = make_badge(
                 row![
                     icon(icons::ICON_WIFI_SLASH)
                         .size(10)
@@ -229,34 +227,20 @@ where
                 ]
                 .spacing(4)
                 .align_y(Alignment::Center),
-            )
-            .padding([2, 8])
-            .style(|_| container::Style {
-                background: Some(iced::Background::Color(colors::WARNING)),
-                border: iced::Border {
-                    radius: 10.0.into(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            });
+                colors::WARNING,
+                None,
+            );
             header_left = header_left.push(badge);
         }
         DownloadState::Failed { .. } => {
-            let badge = container(
+            let badge = make_badge(
                 text("FAILED")
                     .size(10)
                     .font(styles::BOLD_FONT)
                     .color(colors::TEXT_PRIMARY),
-            )
-            .padding([2, 8])
-            .style(|_| container::Style {
-                background: Some(iced::Background::Color(colors::ERROR)),
-                border: iced::Border {
-                    radius: 10.0.into(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            });
+                colors::ERROR,
+                None,
+            );
             header_left = header_left.push(badge);
         }
         _ => {}
@@ -265,28 +249,7 @@ where
     // Speed Limited badge
     if let Some(limit_bps) = item.speed_limit_bps {
         if limit_bps > 0 {
-            let limit_badge = container(
-                row![
-                    icon(icons::ICON_GAUGE).size(10).color(colors::PRIMARY),
-                    text(format!("LIMIT {}", format_speed(limit_bps)))
-                        .size(9)
-                        .font(styles::BOLD_FONT)
-                        .color(colors::TEXT_PRIMARY),
-                ]
-                .spacing(4)
-                .align_y(Alignment::Center),
-            )
-            .padding([2, 6])
-            .style(|_| container::Style {
-                background: Some(iced::Background::Color(colors::SURFACE_HIGH)),
-                border: iced::Border {
-                    color: colors::BORDER,
-                    width: 1.0,
-                    radius: 6.0.into(),
-                },
-                ..Default::default()
-            });
-            header_left = header_left.push(limit_badge);
+            header_left = header_left.push(make_limit_badge(limit_bps));
         }
     }
 

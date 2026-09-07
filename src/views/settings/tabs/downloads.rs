@@ -13,7 +13,7 @@ pub fn view<'a>(model: &SettingsModel) -> Element<'a, SettingsMessage> {
     let folder_input = text_input("", &model.download_folder)
         .on_input(SettingsMessage::FolderChanged)
         .padding([6, 8])
-        .width(260)
+        .width(180)
         .style(styles::transparent_text_input_style);
 
     let folder_box = container(
@@ -33,7 +33,7 @@ pub fn view<'a>(model: &SettingsModel) -> Element<'a, SettingsMessage> {
     });
 
     let browse_btn = button(text("Browse").size(13).color(colors::TEXT_PRIMARY))
-        .padding([8, 16])
+        .padding([7, 14])
         .style(styles::ghost_button_style)
         .on_press(SettingsMessage::BrowseFolderPressed);
 
@@ -66,7 +66,7 @@ pub fn view<'a>(model: &SettingsModel) -> Element<'a, SettingsMessage> {
     .style(styles::pick_list_style)
     .menu_style(styles::pick_list_menu_style)
     .padding([8, 12])
-    .width(240);
+    .width(200);
 
     let item_conflict = setting_row(
         "When file already exists",
@@ -93,7 +93,7 @@ pub fn view<'a>(model: &SettingsModel) -> Element<'a, SettingsMessage> {
     .style(styles::pick_list_style)
     .menu_style(styles::pick_list_menu_style)
     .padding([8, 12])
-    .width(240);
+    .width(200);
 
     let item_delete = setting_row(
         "When deleting a download",

@@ -611,8 +611,10 @@ pub fn settings_view<'a>(
     ];
 
     let settings_card = container(card_content)
-        .width(820)
-        .height(640)
+        .width(Length::Fill)
+        .max_width(820.0)
+        .height(Length::Fill)
+        .max_height(640.0)
         .style(styles::card_style);
 
     container(settings_card)
@@ -786,7 +788,10 @@ pub fn setting_row<'a>(
         column![title_text, desc_text].spacing(2)
     };
 
-    row![left_col, Space::with_width(Length::Fill), control,]
+    let control_box = container(control).align_x(Alignment::End);
+
+    row![left_col.width(Length::Fill), Space::with_width(20), control_box]
         .align_y(Alignment::Center)
+        .width(Length::Fill)
         .into()
 }

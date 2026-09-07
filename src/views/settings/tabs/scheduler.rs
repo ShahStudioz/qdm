@@ -199,23 +199,23 @@ fn view_settings_subtab<'a>(model: &'a SettingsModel) -> Element<'a, SettingsMes
 
     // 5. Days of the Week Pills
     let day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    let mut day_buttons = row![].spacing(6).align_y(Alignment::Center);
+    let mut day_buttons = row![].spacing(4).align_y(Alignment::Center);
 
     for (idx, name) in day_names.iter().enumerate() {
         let is_active = model.schedule.active_days[idx];
         let day_btn = button(
             text(*name)
-                .size(12)
+                .size(11)
                 .font(styles::BOLD_FONT)
                 .color(if is_active { colors::BACKGROUND } else { colors::TEXT_MUTED }),
         )
-        .padding([6, 12])
+        .padding([5, 8])
         .style(move |_, _| {
             if is_active {
                 button::Style {
                     background: Some(iced::Background::Color(colors::PRIMARY)),
                     text_color: colors::BACKGROUND,
-                    border: iced::Border { radius: 14.0.into(), ..Default::default() },
+                    border: iced::Border { radius: 12.0.into(), ..Default::default() },
                     ..Default::default()
                 }
             } else {
@@ -225,7 +225,7 @@ fn view_settings_subtab<'a>(model: &'a SettingsModel) -> Element<'a, SettingsMes
                     border: iced::Border {
                         color: colors::BORDER,
                         width: 1.0,
-                        radius: 14.0.into(),
+                        radius: 12.0.into(),
                     },
                     ..Default::default()
                 }
@@ -251,7 +251,7 @@ fn view_settings_subtab<'a>(model: &'a SettingsModel) -> Element<'a, SettingsMes
     .style(styles::pick_list_style)
     .menu_style(styles::pick_list_menu_style)
     .padding([8, 12])
-    .width(280);
+    .width(230);
 
     let item_on_complete = setting_row(
         "When scheduled downloads complete",
@@ -365,6 +365,8 @@ fn view_scheduled_subtab<'a>(items: Vec<&'a DownloadItem>) -> Element<'a, Settin
             DownloadState::Completed => container(
                 text("COMPLETED").size(10).font(styles::BOLD_FONT).color(colors::BACKGROUND),
             )
+            .height(Length::Fixed(18.0))
+            .align_y(Alignment::Center)
             .padding([2, 6])
             .style(|_| container::Style {
                 background: Some(iced::Background::Color(colors::SUCCESS)),
@@ -378,6 +380,8 @@ fn view_scheduled_subtab<'a>(items: Vec<&'a DownloadItem>) -> Element<'a, Settin
                     .font(styles::BOLD_FONT)
                     .color(colors::BACKGROUND),
             )
+            .height(Length::Fixed(18.0))
+            .align_y(Alignment::Center)
             .padding([2, 6])
             .style(|_| container::Style {
                 background: Some(iced::Background::Color(colors::SUCCESS)),
@@ -388,6 +392,8 @@ fn view_scheduled_subtab<'a>(items: Vec<&'a DownloadItem>) -> Element<'a, Settin
             _ => container(
                 text("SCHEDULED").size(10).font(styles::BOLD_FONT).color(colors::BACKGROUND),
             )
+            .height(Length::Fixed(18.0))
+            .align_y(Alignment::Center)
             .padding([2, 6])
             .style(|_| container::Style {
                 background: Some(iced::Background::Color(colors::PRIMARY)),

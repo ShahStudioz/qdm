@@ -32,7 +32,7 @@ pub fn view<'a>(model: &SettingsModel) -> Element<'a, SettingsMessage> {
     let port_input = text_input("6881", &model.torrent_listen_port)
         .on_input(SettingsMessage::TorrentListenPortChanged)
         .padding([6, 12])
-        .width(100)
+        .width(80)
         .style(styles::transparent_text_input_style);
 
     let port_box = container(port_input)
@@ -70,7 +70,7 @@ pub fn view<'a>(model: &SettingsModel) -> Element<'a, SettingsMessage> {
     let ratio_input = text_input("Unlimited", &model.torrent_seed_ratio_limit)
         .on_input(SettingsMessage::TorrentSeedRatioLimitChanged)
         .padding([6, 10])
-        .width(120)
+        .width(80)
         .style(styles::transparent_text_input_style);
 
     let ratio_box = container(ratio_input)
@@ -95,7 +95,7 @@ pub fn view<'a>(model: &SettingsModel) -> Element<'a, SettingsMessage> {
     let ul_input = text_input("Unlimited", &model.torrent_upload_limit_value)
         .on_input(SettingsMessage::TorrentUploadLimitValueChanged)
         .padding([6, 10])
-        .width(120)
+        .width(80)
         .style(styles::transparent_text_input_style);
 
     let ul_box = container(ul_input)
@@ -118,7 +118,7 @@ pub fn view<'a>(model: &SettingsModel) -> Element<'a, SettingsMessage> {
     .style(styles::pick_list_style)
     .menu_style(styles::pick_list_menu_style)
     .padding([8, 12])
-    .width(90);
+    .width(80);
 
     let ul_control = row![ul_box, ul_unit_dropdown]
         .spacing(8)
