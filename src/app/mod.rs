@@ -76,6 +76,15 @@ pub enum Message {
     MirrorDialogueMessages(mirror_dialogue::MirrorDialogueMessage),
     ConflictDialogueMessages(conflict_dialogue::ConflictDialogMessage),
     DeleteDialogueMessages(delete_dialogue::DeleteDialogMessage),
+
+    // --- Window Management ---
+    WindowIdRetrieved(Option<iced::window::Id>),
+    WindowEvent(iced::window::Id, iced::window::Event),
+    WindowDragPressed,
+    WindowMinimizePressed,
+    WindowToggleMaximizePressed,
+    WindowClosePressed,
+    WindowMaximizedResult(bool),
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +93,11 @@ pub enum Message {
 
 /// The root application state for Quick Download Manager.
 pub struct QdmApp {
+    // --- Window State ---
+    pub(crate) window_id: Option<iced::window::Id>,
+    pub(crate) is_maximized: bool,
+    pub(crate) last_title_bar_click: Option<std::time::Instant>,
+
     // --- UI State ---
     pub(crate) current_filter: sidebar::NavFilter,
     pub(crate) search_query: String,
@@ -115,6 +129,9 @@ pub struct QdmApp {
 impl Default for QdmApp {
     fn default() -> Self {
         Self {
+            window_id: None,
+            is_maximized: false,
+            last_title_bar_click: None,
             current_filter: sidebar::NavFilter::All,
             search_query: String::new(),
             downloads: Vec::new(),
@@ -154,10 +171,12 @@ impl QdmApp {
             async move {
                 engine_clone.init_torrent(default_dir).await;
             },
-            |_| Message::TorrentEngineInitialized
+            |_| Message::TorrentEngineInitialized,
         );
 
-        (app, Task::batch([downloads_task, torrent_task]))
+        let window_task = iced::window::get_latest().map(Message::WindowIdRetrieved);
+
+        (app, Task::batch([downloads_task, torrent_task, window_task]))
     }
 
     // -----------------------------------------------------------------------
@@ -343,6 +362,23 @@ impl QdmApp {
             Message::DeleteDialogueMessages(msg) => {
                 handlers::dialogs::handle_delete_dialog_message(self, msg)
             }
+
+            // --- Window Management ---
+            Message::WindowIdRetrieved(id_opt) => {
+                handlers::window::handle_window_id_retrieved(self, id_opt)
+            }
+            Message::WindowEvent(id, event) => {
+                handlers::window::handle_window_event(self, id, event)
+            }
+            Message::WindowMaximizedResult(is_max) => {
+                handlers::window::handle_window_maximized_result(self, is_max)
+            }
+            Message::WindowDragPressed => handlers::window::handle_window_drag(self),
+            Message::WindowMinimizePressed => handlers::window::handle_window_minimize(self),
+            Message::WindowToggleMaximizePressed => {
+                handlers::window::handle_window_toggle_maximize(self)
+            }
+            Message::WindowClosePressed => handlers::window::handle_window_close(self),
         }
     }
 }

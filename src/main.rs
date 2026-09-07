@@ -18,8 +18,10 @@ fn main() -> iced::Result {
             size: Size::new(1200.0, 760.0),
             min_size: Some(Size::new(900.0, 600.0)),
             position: window::Position::Centered,
+            decorations: false,
             ..Default::default()
         })
         .font(icons::FONTAWESOME_BYTES)
         .run_with(QdmApp::new)
 }
+

@@ -41,12 +41,17 @@ impl QdmApp {
         let network_check_sub = iced::time::every(std::time::Duration::from_secs(3))
             .map(|_| Message::CheckNetworkConnectivity);
 
+        // --- Window events subscription (resize, open, close request, maximize) ---
+        let window_sub =
+            iced::window::events().map(|(id, event)| Message::WindowEvent(id, event));
+
         Subscription::batch([
             engine_sub,
             anim_sub,
             second_tick_sub,
             disk_sync_sub,
             network_check_sub,
+            window_sub,
         ])
     }
 }

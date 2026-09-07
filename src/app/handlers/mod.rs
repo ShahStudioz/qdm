@@ -9,3 +9,4 @@ pub(crate) mod engine;
 pub(crate) mod navigation;
 pub(crate) mod network;
 pub(crate) mod queue;
+pub(crate) mod window;

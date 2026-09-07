@@ -144,6 +144,33 @@ pub fn ghost_button_style(_theme: &Theme, status: button::Status) -> button::Sty
     }
 }
 
+pub fn window_control_button_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let (bg, text_color) = match status {
+        button::Status::Pressed | button::Status::Hovered => (Some(Background::Color(colors::SURFACE_HIGH)), colors::TEXT_PRIMARY),
+        _ => (None, colors::TEXT_MUTED),
+    };
+    button::Style {
+        background: bg,
+        text_color,
+        border: Border::default(),
+        shadow: Shadow::default(),
+    }
+}
+
+pub fn window_close_button_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let (bg, text_color) = match status {
+        button::Status::Pressed => (Some(Background::Color(colors::ERROR)), colors::TEXT_PRIMARY),
+        button::Status::Hovered => (Some(Background::Color(colors::ERROR)), Color::WHITE),
+        _ => (None, colors::TEXT_MUTED),
+    };
+    button::Style {
+        background: bg,
+        text_color,
+        border: Border::default(),
+        shadow: Shadow::default(),
+    }
+}
+
 // --- Progress Bar Styles ---
 
 pub fn progress_bar_style_with_color(bar_color: Color) -> impl Fn(&Theme) -> progress_bar::Style {

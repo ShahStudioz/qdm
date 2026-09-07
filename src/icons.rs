@@ -62,6 +62,12 @@ pub const ICON_USERS: char = '\u{f0c0}';         // fa-users
 pub const ICON_DOWNLOAD: char = '\u{f019}';      // fa-download
 pub const ICON_UPLOAD: char = '\u{f093}';        // fa-upload
 
+// Window Control Icons
+pub const ICON_WINDOW_MINIMIZE: char = '\u{f068}';   // fa-minus
+pub const ICON_WINDOW_MAXIMIZE: char = '\u{f2d0}';   // fa-window-maximize
+pub const ICON_WINDOW_RESTORE: char = '\u{f2d2}';    // fa-window-restore
+pub const ICON_WINDOW_CLOSE: char = '\u{f00d}';      // fa-xmark
+
 // File Type Icons
 pub const ICON_MEDIA: char = '\u{f008}';         // fa-film (Video/Audio/Media)
 pub const ICON_DISC: char = '\u{f51f}';          // fa-compact-disc (ISO/CD/DVD)

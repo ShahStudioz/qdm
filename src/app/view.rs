@@ -8,7 +8,7 @@ use super::{Message, QdmApp};
 use crate::icons::{self, icon};
 use crate::models::download::DownloadState;
 use crate::theme::{colors, styles};
-use crate::views::components::{sidebar, toolbar};
+use crate::views::components::{sidebar, title_bar, toolbar};
 use crate::views::dialogues::{add_dialogue, conflict_dialogue, delete_dialogue, mirror_dialogue};
 use crate::views::downloads::download_list::download_list_view;
 use crate::views::settings::settings;
@@ -201,35 +201,65 @@ impl QdmApp {
             .width(Length::Fill)
             .height(Length::Fill);
 
-        let base_view = container(root_layout)
+        let title_bar = title_bar::title_bar_view(
+            self.is_maximized,
+            Message::WindowDragPressed,
+            Message::WindowMinimizePressed,
+            Message::WindowToggleMaximizePressed,
+            Message::WindowClosePressed,
+        );
+
+        // --- Modal overlays (highest priority on top of main content area) ---
+        let main_area: Element<Message> = if self.conflict_dialog.is_open {
+            let conflict_modal = conflict_dialogue::view(&self.conflict_dialog)
+                .map(Message::ConflictDialogueMessages);
+            stack![root_layout, conflict_modal]
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        } else if self.delete_dialog.is_open {
+            let delete_modal =
+                delete_dialogue::view(&self.delete_dialog).map(Message::DeleteDialogueMessages);
+            stack![root_layout, delete_modal]
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        } else if self.add_dialog.is_open {
+            let dialog_modal =
+                add_dialogue::view(&self.add_dialog).map(Message::AddDialogueModalMessages);
+            stack![root_layout, dialog_modal]
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        } else if self.mirror_dialog.is_open {
+            let mirror_modal =
+                mirror_dialogue::view(&self.mirror_dialog).map(Message::MirrorDialogueMessages);
+            stack![root_layout, mirror_modal]
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        } else {
+            root_layout.into()
+        };
+
+        let window_content = column![title_bar, main_area]
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        container(window_content)
             .width(Length::Fill)
             .height(Length::Fill)
             .style(|_| container::Style {
                 background: Some(iced::Background::Color(colors::BACKGROUND)),
                 text_color: Some(colors::TEXT_PRIMARY),
+                border: iced::Border {
+                    color: colors::BORDER,
+                    width: if self.is_maximized { 0.0 } else { 1.0 },
+                    radius: if self.is_maximized { 0.0.into() } else { 8.0.into() },
+                },
                 ..Default::default()
-            });
-
-        // --- Modal overlays (highest priority on top) ---
-        if self.conflict_dialog.is_open {
-            let conflict_modal = conflict_dialogue::view(&self.conflict_dialog)
-                .map(Message::ConflictDialogueMessages);
-            stack![base_view, conflict_modal].into()
-        } else if self.delete_dialog.is_open {
-            let delete_modal =
-                delete_dialogue::view(&self.delete_dialog).map(Message::DeleteDialogueMessages);
-            stack![base_view, delete_modal].into()
-        } else if self.add_dialog.is_open {
-            let dialog_modal =
-                add_dialogue::view(&self.add_dialog).map(Message::AddDialogueModalMessages);
-            stack![base_view, dialog_modal].into()
-        } else if self.mirror_dialog.is_open {
-            let mirror_modal =
-                mirror_dialogue::view(&self.mirror_dialog).map(Message::MirrorDialogueMessages);
-            stack![base_view, mirror_modal].into()
-        } else {
-            base_view.into()
-        }
+            })
+            .into()
     }
 
     /// Returns the application theme.
