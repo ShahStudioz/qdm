@@ -45,6 +45,10 @@ impl QdmApp {
         let window_sub =
             iced::window::events().map(|(id, event)| Message::WindowEvent(id, event));
 
+        // --- System tray polling tick (300ms) ---
+        let tray_sub = iced::time::every(std::time::Duration::from_millis(300))
+            .map(|_| Message::TrayTick);
+
         Subscription::batch([
             engine_sub,
             anim_sub,
@@ -52,6 +56,7 @@ impl QdmApp {
             disk_sync_sub,
             network_check_sub,
             window_sub,
+            tray_sub,
         ])
     }
 }

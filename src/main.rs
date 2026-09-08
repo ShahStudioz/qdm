@@ -11,6 +11,8 @@ mod views;
 use app::QdmApp;
 
 fn main() -> iced::Result {
+    let window_icon = icons::load_window_icon();
+
     iced::application("Quick Download Manager", QdmApp::update, QdmApp::view)
         .subscription(QdmApp::subscription)
         .theme(QdmApp::theme)
@@ -19,9 +21,9 @@ fn main() -> iced::Result {
             min_size: Some(Size::new(900.0, 600.0)),
             position: window::Position::Centered,
             decorations: false,
+            icon: window_icon,
             ..Default::default()
         })
         .font(icons::FONTAWESOME_BYTES)
         .run_with(QdmApp::new)
 }
-

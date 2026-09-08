@@ -166,13 +166,29 @@ where
     ]
     .align_y(Alignment::Center);
 
+    let top_border = container(Space::with_height(1))
+        .width(Length::Fill)
+        .height(1)
+        .style(|_| container::Style {
+            background: Some(iced::Background::Color(colors::BORDER)),
+            ..Default::default()
+        });
+
+    let bottom_border = container(Space::with_height(1))
+        .width(Length::Fill)
+        .height(1)
+        .style(|_| container::Style {
+            background: Some(iced::Background::Color(colors::BORDER)),
+            ..Default::default()
+        });
+
     let toolbar_container = container(toolbar_row)
         .width(Length::Fill)
         .padding([16, 24])
         .align_y(Alignment::Center)
         .style(styles::toolbar_style);
 
-    toolbar_container.into()
+    column![top_border, toolbar_container, bottom_border].into()
 }
 
 pub fn dropdown_overlay<'a, Message: Clone + 'static>(

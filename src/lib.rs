@@ -15,7 +15,9 @@ pub mod services {
         pub mod worker;
         pub mod writer;
     }
-    pub mod torrent { pub mod engine; }
+    pub mod torrent {
+        pub mod engine;
+    }
     pub mod shared {
         pub mod network;
         pub mod schedule;

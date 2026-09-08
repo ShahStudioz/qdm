@@ -91,9 +91,8 @@ where
         .style(move |_| container::Style {
             background: Some(iced::Background::Color(box_bg)),
             border: iced::Border {
-                color: colors::BORDER,
-                width: 1.0,
                 radius: 10.0.into(),
+                ..Default::default()
             },
             ..Default::default()
         });

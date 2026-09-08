@@ -351,9 +351,9 @@ impl QdmApp {
         .style(move |_| container::Style {
             background: Some(iced::Background::Color(banner_bg)),
             border: iced::Border {
-                color: border_col,
-                width: 1.0,
                 radius: 8.0.into(),
+                color: border_col,
+                ..Default::default()
             },
             ..Default::default()
         });

@@ -85,6 +85,8 @@ pub enum Message {
     WindowToggleMaximizePressed,
     WindowClosePressed,
     WindowMaximizedResult(bool),
+    WindowConfigured,
+    TrayTick,
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +99,7 @@ pub struct QdmApp {
     pub(crate) window_id: Option<iced::window::Id>,
     pub(crate) is_maximized: bool,
     pub(crate) last_title_bar_click: Option<std::time::Instant>,
+    pub(crate) tray: Option<crate::services::tray::TrayManager>,
 
     // --- UI State ---
     pub(crate) current_filter: sidebar::NavFilter,
@@ -146,6 +149,7 @@ impl Default for QdmApp {
             engine: crate::services::engine::AppEngine::new(crate::services::http::DownloadEngine::new()),
             copied_link_ids: std::collections::HashSet::new(),
             last_item_click: None,
+            tray: None,
         }
     }
 }
@@ -155,8 +159,15 @@ impl QdmApp {
     /// and kicking off the initial downloads load.
     pub fn new() -> (Self, Task<Message>) {
         let initial_settings = storage::json_store::load_settings().unwrap_or_default();
+        let tray = if let Some((rgba, width, height)) = crate::icons::load_logo_square_rgba(32) {
+            crate::services::tray::TrayManager::new(rgba, width, height)
+        } else {
+            None
+        };
+
         let app = Self {
             settings: initial_settings.clone(),
+            tray,
             ..Default::default()
         };
 
@@ -379,6 +390,22 @@ impl QdmApp {
                 handlers::window::handle_window_toggle_maximize(self)
             }
             Message::WindowClosePressed => handlers::window::handle_window_close(self),
+            Message::WindowConfigured => Task::none(),
+            Message::TrayTick => {
+                if let Some(tray) = &self.tray {
+                    if let Some(action) = tray.poll_events() {
+                        match action {
+                            crate::services::tray::TrayAction::Restore => {
+                                return handlers::window::handle_restore_from_tray(self);
+                            }
+                            crate::services::tray::TrayAction::Quit => {
+                                return handlers::window::handle_quit_from_tray(self);
+                            }
+                        }
+                    }
+                }
+                Task::none()
+            }
         }
     }
 }

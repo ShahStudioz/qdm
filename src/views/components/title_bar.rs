@@ -1,4 +1,4 @@
-use iced::widget::{button, column, container, mouse_area, row, text, Space};
+use iced::widget::{button, column, container, image, mouse_area, row, text, Space};
 use iced::{Alignment, Element, Length};
 use crate::icons::{self, icon};
 use crate::theme::{colors, styles};
@@ -14,7 +14,7 @@ where
     Message: 'a + Clone + 'static,
 {
     // 1. Left Branding
-    let app_icon = icon(icons::ICON_LOGO).size(12).color(colors::PRIMARY);
+    let app_icon = image(icons::get_logo_handle()).height(18);
     let app_title = text("Quick Download Manager")
         .size(12)
         .font(styles::BOLD_FONT)

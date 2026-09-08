@@ -18,7 +18,7 @@ name = "speed_debug"
 path = "src/bin/speed_debug.rs"
 
 [dependencies]
-iced = { version = "0.13", features = ["tokio"] }
+iced = { version = "0.13", features = ["tokio", "image"] }
 tokio = { version = "1", features = ["full"] }
 futures-util = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 reqwest = { version = "0.13.4", features = ["stream", "json"] }
@@ -30,3 +30,9 @@ thiserror = "2.0"
 rfd = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
 librqbit = "9.0.1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+tray-icon = "0.24"
+raw-window-handle = "0.6"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_Foundation"] }
