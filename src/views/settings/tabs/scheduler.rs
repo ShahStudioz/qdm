@@ -1,7 +1,7 @@
 use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input, Space};
 use iced::{Alignment, Element, Length};
 use crate::icons::{self, icon};
-use crate::models::download::{DownloadItem, DownloadState, FileType};
+use crate::models::download::{truncate_filename, DownloadItem, DownloadState, FileType};
 use crate::models::schedule::{format_12h, OnCompleteAction};
 use crate::theme::{colors, styles};
 use crate::views::settings::settings::{
@@ -345,7 +345,7 @@ fn view_scheduled_subtab<'a>(items: Vec<&'a DownloadItem>) -> Element<'a, Settin
         };
 
         // File Info
-        let name_label = text(&item.filename)
+        let name_label = text(truncate_filename(&item.filename, 42))
             .size(14)
             .font(styles::BOLD_FONT)
             .color(colors::TEXT_PRIMARY);

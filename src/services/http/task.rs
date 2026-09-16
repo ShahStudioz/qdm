@@ -15,11 +15,10 @@
 //!    for capability, and locks concurrency ceiling instantly upon receiving HTTP 429.
 //! 5. **Sliding Window Speed Meter**: Computes smooth speed over a rolling 1.5-second window.
 
-use std::collections::HashSet;
+use reqwest::Client;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use std::collections::VecDeque;
-use reqwest::Client;
 use tokio::sync::{mpsc, watch};
 
 use crate::models::download::{ChunkState, DownloadItem, DownloadState, FileType};
@@ -142,6 +141,7 @@ pub struct DownloadTaskController {
     pub pause_rx: watch::Receiver<bool>,
     pub task_event_tx: mpsc::Sender<TaskEvent>,
     active_workers: HashSet<usize>,
+    worker_tasks: HashMap<usize, tokio::task::JoinHandle<()>>,
     max_allowed_concurrency: usize,
     current_target_concurrency: usize,
     next_scale_up_allowed: Instant,
@@ -152,11 +152,15 @@ pub struct DownloadTaskController {
 
 impl DownloadTaskController {
     fn http_meta(&self) -> &crate::models::download::HttpMetadata {
-        self.item.http_meta().expect("DownloadTaskController only handles HTTP downloads")
+        self.item
+            .http_meta()
+            .expect("DownloadTaskController only handles HTTP downloads")
     }
 
     fn http_meta_mut(&mut self) -> &mut crate::models::download::HttpMetadata {
-        self.item.http_meta_mut().expect("DownloadTaskController only handles HTTP downloads")
+        self.item
+            .http_meta_mut()
+            .expect("DownloadTaskController only handles HTTP downloads")
     }
 
     pub fn new(
@@ -165,16 +169,22 @@ impl DownloadTaskController {
         pause_rx: watch::Receiver<bool>,
         task_event_tx: mpsc::Sender<TaskEvent>,
     ) -> Self {
-        let http = item.http_meta().expect("DownloadTaskController only handles HTTP downloads");
+        let http = item
+            .http_meta()
+            .expect("DownloadTaskController only handles HTTP downloads");
         let max_concurrency = (item.max_connections as usize).clamp(1, 16);
         // Start conservatively with 2 connections (or 1 if non-resumable)
-        let initial_target = if http.resumable && item.total_bytes.map(|t| t > 1024 * 1024).unwrap_or(false) {
-            2.min(max_concurrency)
-        } else {
-            1
-        };
+        let initial_target =
+            if http.resumable && item.total_bytes.map(|t| t > 1024 * 1024).unwrap_or(false) {
+                2.min(max_concurrency)
+            } else {
+                1
+            };
 
-        let throttler = item.speed_limit_bps.filter(|&bps| bps > 0).map(Throttler::new);
+        let throttler = item
+            .speed_limit_bps
+            .filter(|&bps| bps > 0)
+            .map(Throttler::new);
 
         Self {
             item,
@@ -182,6 +192,7 @@ impl DownloadTaskController {
             pause_rx,
             task_event_tx,
             active_workers: HashSet::new(),
+            worker_tasks: HashMap::new(),
             max_allowed_concurrency: max_concurrency,
             current_target_concurrency: initial_target,
             next_scale_up_allowed: Instant::now() + Duration::from_secs(4),
@@ -204,17 +215,24 @@ impl DownloadTaskController {
         let temp_file_path = save_path.join(format!("{}.qdmdownload", self.item.filename));
 
         // 1. Initialize Positional File Writer with disk pre-allocation on temporary .qdmdownload file
-        let writer = match PositionalWriter::create_preallocated(&temp_file_path, self.item.total_bytes) {
-            Ok(w) => w,
-            Err(e) => {
-                let _ = self.task_event_tx.send(TaskEvent::Failed {
-                    id: self.item.id,
-                    error: format!("Failed to create output file {:?}: {}", temp_file_path, e),
-                    downloaded_bytes: self.item.downloaded_bytes,
-                }).await;
-                return;
-            }
-        };
+        let writer =
+            match PositionalWriter::create_preallocated(&temp_file_path, self.item.total_bytes) {
+                Ok(w) => w,
+                Err(e) => {
+                    let _ = self
+                        .task_event_tx
+                        .send(TaskEvent::Failed {
+                            id: self.item.id,
+                            error: format!(
+                                "Failed to create output file {:?}: {}",
+                                temp_file_path, e
+                            ),
+                            downloaded_bytes: self.item.downloaded_bytes,
+                        })
+                        .await;
+                    return;
+                }
+            };
 
         // 2. Partition initial long-lived chunks or reuse existing chunk state
         if self.http_meta().chunks.is_empty() {
@@ -238,20 +256,20 @@ impl DownloadTaskController {
         // For TaskBytesReceived gap measurement
         let mut last_bytes_recv_at: Option<Instant> = None;
 
-/// Asynchronously waits until the pause receiver becomes `true`.
-/// If the sender is dropped or if the value is `false`, it stays pending indefinitely
-/// so it never spuriously interrupts other select! arms.
-async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
-    if *pause_rx.borrow() {
-        return;
-    }
-    while let Ok(()) = pause_rx.changed().await {
-        if *pause_rx.borrow_and_update() {
-            return;
+        /// Asynchronously waits until the pause receiver becomes `true`.
+        /// If the sender is dropped or if the value is `false`, it stays pending indefinitely
+        /// so it never spuriously interrupts other select! arms.
+        async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
+            if *pause_rx.borrow() {
+                return;
+            }
+            while let Ok(()) = pause_rx.changed().await {
+                if *pause_rx.borrow_and_update() {
+                    return;
+                }
+            }
+            futures_util::future::pending::<()>().await;
         }
-    }
-    futures_util::future::pending::<()>().await;
-}
 
         loop {
             tokio::select! {
@@ -397,6 +415,7 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                                 chunk.current_offset = chunk.end_byte.saturating_add(1);
                             }
                             self.active_workers.remove(&chunk_id);
+                            self.worker_tasks.remove(&chunk_id);
 
                             let total_downloaded = self.calculate_total_downloaded();
                             let all_chunks_done = self.http_meta().chunks.iter().all(|c| c.is_completed || (c.end_byte != u64::MAX && c.current_offset > c.end_byte));
@@ -404,6 +423,10 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
 
                             // Check if all chunks have finished or total size reached
                             if all_chunks_done || size_satisfied {
+                                for (_, handle) in self.worker_tasks.drain() {
+                                    handle.abort();
+                                }
+                                tokio::task::yield_now().await;
                                 let _ = writer.sync_data();
                                 drop(writer);
 
@@ -418,11 +441,33 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                                     if final_file_path.exists() {
                                         let _ = std::fs::remove_file(&final_file_path);
                                     }
-                                    if let Err(err) = std::fs::rename(&temp_file_path, &final_file_path) {
-                                        println!(
-                                            "[QDM Task {}] Warning: Failed to rename {:?} to {:?}: {}",
-                                            self.item.id, temp_file_path, final_file_path, err
-                                        );
+                                    let mut rename_success = false;
+                                    for attempt in 0..10 {
+                                        match std::fs::rename(&temp_file_path, &final_file_path) {
+                                            Ok(_) => {
+                                                rename_success = true;
+                                                break;
+                                            }
+                                            Err(err) => {
+                                                if attempt == 9 {
+                                                    println!(
+                                                        "[QDM Task {}] Error: Failed to rename {:?} to {:?}: {}",
+                                                        self.item.id, temp_file_path, final_file_path, err
+                                                    );
+                                                } else {
+                                                    tokio::time::sleep(Duration::from_millis(50)).await;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if !rename_success {
+                                        let _ = self.task_event_tx.send(TaskEvent::Failed {
+                                            id: self.item.id,
+                                            error: format!("Failed to finalize file: could not rename to {:?}", final_file_path.file_name().unwrap_or_default()),
+                                            downloaded_bytes: total_downloaded,
+                                        }).await;
+                                        return;
                                     }
                                 }
 
@@ -451,6 +496,7 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                         }
                         Some(WorkerEvent::NetworkLost { chunk_id }) => {
                             self.active_workers.remove(&chunk_id);
+                            self.worker_tasks.remove(&chunk_id);
                             let total_downloaded = self.calculate_total_downloaded();
                             self.item.downloaded_bytes = total_downloaded;
                             self.item.state = DownloadState::WaitingForNetwork {
@@ -483,6 +529,7 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                         }
                         Some(WorkerEvent::WorkerFailed { chunk_id, error }) => {
                             self.active_workers.remove(&chunk_id);
+                            self.worker_tasks.remove(&chunk_id);
                             println!(
                                 "[QDM Task {}] Worker {} stopped: {}. Rescheduling chunk from last saved offset...",
                                 self.item.id, chunk_id, error
@@ -524,12 +571,24 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
     fn partition_initial_chunks(&self) -> Vec<ChunkState> {
         let total = match self.item.total_bytes {
             Some(t) if t > 0 => t,
-            _ => return vec![ChunkState::new(0, &self.http_meta().primary_url.url, 0, u64::MAX)],
+            _ => {
+                return vec![ChunkState::new(
+                    0,
+                    &self.http_meta().primary_url.url,
+                    0,
+                    u64::MAX,
+                )]
+            }
         };
 
         // Don't chunk small files (< 1MB) or non-resumable servers
         if !self.http_meta().resumable || total < 1024 * 1024 {
-            return vec![ChunkState::new(0, &self.http_meta().primary_url.url, 0, total - 1)];
+            return vec![ChunkState::new(
+                0,
+                &self.http_meta().primary_url.url,
+                0,
+                total - 1,
+            )];
         }
 
         // Long-Lived Streams: create initial_target massive chunks (e.g. 2 chunks for 2 initial connections)
@@ -560,22 +619,29 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
     }
 
     /// Spawns workers for unassigned chunks or performs dynamic tail work-stealing from busy workers.
-    fn spawn_available_work(&mut self, writer: &PositionalWriter, worker_tx: &mpsc::Sender<WorkerEvent>) {
+    fn spawn_available_work(
+        &mut self,
+        writer: &PositionalWriter,
+        worker_tx: &mpsc::Sender<WorkerEvent>,
+    ) {
         while self.active_workers.len() < self.current_target_concurrency {
             // 1. Check for an uncompleted chunk that is NOT currently active
             let next_chunk_idx = self.http_meta().chunks.iter().position(|c| {
-                !c.is_completed && c.current_offset <= c.end_byte && !self.active_workers.contains(&c.id)
+                !c.is_completed
+                    && c.current_offset <= c.end_byte
+                    && !self.active_workers.contains(&c.id)
             });
 
             if let Some(idx) = next_chunk_idx {
                 let chunk = self.http_meta().chunks[idx].clone();
-                self.active_workers.insert(chunk.id);
+                let chunk_id = chunk.id;
+                self.active_workers.insert(chunk_id);
 
                 // Emit: worker spawned
                 if let Some(ref d) = self.diag {
                     d.emit(DiagEvent::TaskWorkerSpawned {
                         ts: d.now(),
-                        chunk_id: chunk.id,
+                        chunk_id,
                         start_offset: chunk.current_offset,
                         end_offset: chunk.end_byte,
                     });
@@ -587,14 +653,16 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                     writer.clone(),
                     worker_tx.clone(),
                     self.pause_rx.clone(),
-                ).with_throttler(self.throttler.clone());
+                )
+                .with_throttler(self.throttler.clone());
                 if let Some(ref d) = self.diag {
                     worker = worker.with_diag(d.clone());
                 }
 
-                tokio::spawn(async move {
+                let handle = tokio::spawn(async move {
                     worker.run(Duration::ZERO).await;
                 });
+                self.worker_tasks.insert(chunk_id, handle);
             } else {
                 // 2. Dynamic Work-Stealing: Find the active chunk with the largest remaining byte range (> 4MB)
                 let largest_idx = self
@@ -602,7 +670,9 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                     .chunks
                     .iter()
                     .enumerate()
-                    .filter(|(_, c)| !c.is_completed && c.end_byte != u64::MAX && c.end_byte > c.current_offset)
+                    .filter(|(_, c)| {
+                        !c.is_completed && c.end_byte != u64::MAX && c.end_byte > c.current_offset
+                    })
                     .max_by_key(|(_, c)| c.end_byte - c.current_offset)
                     .map(|(idx, _)| idx);
 
@@ -641,14 +711,16 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
                             writer.clone(),
                             worker_tx.clone(),
                             self.pause_rx.clone(),
-                        ).with_throttler(self.throttler.clone());
+                        )
+                        .with_throttler(self.throttler.clone());
                         if let Some(ref d) = self.diag {
                             worker = worker.with_diag(d.clone());
                         }
 
-                        tokio::spawn(async move {
+                        let handle = tokio::spawn(async move {
                             worker.run(Duration::ZERO).await;
                         });
+                        self.worker_tasks.insert(new_id, handle);
                         continue;
                     }
                 }
@@ -660,7 +732,11 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
     }
 
     fn calculate_total_downloaded(&self) -> u64 {
-        self.http_meta().chunks.iter().map(|c| c.downloaded_bytes()).sum()
+        self.http_meta()
+            .chunks
+            .iter()
+            .map(|c| c.downloaded_bytes())
+            .sum()
     }
 
     /// Validates file integrity upon download completion.
@@ -686,7 +762,9 @@ async fn wait_for_pause(pause_rx: &mut watch::Receiver<bool>) {
 
         // 2. Structural verification (advisory logging)
         if self.item.file_type == FileType::Archive {
-            if let Ok(is_valid_structure) = integrity::verify_structure(file_path, self.item.file_type).await {
+            if let Ok(is_valid_structure) =
+                integrity::verify_structure(file_path, self.item.file_type).await
+            {
                 if !is_valid_structure {
                     println!("[QDM Integrity] Note: Archive structure check did not match standard ZIP headers for {:?}", file_path);
                 }

@@ -1,5 +1,7 @@
 use crate::icons::{self, icon};
-use crate::models::download::{format_eta, format_speed, DownloadItem, DownloadState, FileType};
+use crate::models::download::{
+    format_eta, format_speed, truncate_filename, DownloadItem, DownloadState, FileType,
+};
 use crate::theme::{colors, styles};
 use iced::widget::{button, column, container, mouse_area, progress_bar, row, text, Space};
 use iced::{Alignment, Element, Length};
@@ -97,7 +99,8 @@ where
             ..Default::default()
         });
 
-    let filename_text = text(&item.filename)
+    let display_name = truncate_filename(&item.filename, 60);
+    let filename_text = text(display_name)
         .size(15)
         .font(styles::BOLD_FONT)
         .color(colors::TEXT_PRIMARY);
@@ -340,8 +343,12 @@ where
         }
     };
 
-    let top_row =
-        row![header_left, Space::with_width(Length::Fill), actions_row,].align_y(Alignment::Center);
+    let top_row = row![
+        container(header_left).width(Length::Fill),
+        actions_row,
+    ]
+    .spacing(12)
+    .align_y(Alignment::Center);
 
     let url_str = item.get_url();
     let truncated_url = if url_str.len() > 60 {

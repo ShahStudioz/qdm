@@ -1,7 +1,7 @@
 use iced::widget::{button, column, container, row, scrollable, text, Space};
 use iced::{Alignment, Element, Length};
 use crate::icons::{self, icon};
-use crate::models::download::{DownloadItem, DownloadState, FileType};
+use crate::models::download::{truncate_filename, DownloadItem, DownloadState, FileType};
 use crate::theme::{colors, styles};
 
 pub fn queue_view<'a, Message>(
@@ -114,7 +114,7 @@ where
             let type_icon_widget = icon(file_icon).size(16).color(icon_color);
 
             // 3. Name & Sub-details
-            let name_text = text(&item.filename)
+            let name_text = text(truncate_filename(&item.filename, 42))
                 .size(14)
                 .font(styles::BOLD_FONT)
                 .color(colors::TEXT_PRIMARY);

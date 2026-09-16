@@ -13,6 +13,7 @@ use crate::services::http::engine::EngineUiEvent;
 use crate::services::shared::network::connectivity::ConnectivityMonitor;
 
 /// The internal Torrent engine wrapping librqbit
+#[derive(Clone)]
 pub struct TorrentEngine {
     session: Arc<Session>,
     event_tx: broadcast::Sender<EngineUiEvent>,
@@ -75,8 +76,18 @@ impl TorrentEngine {
                 let handle_clone = handle.clone();
                 let event_tx = self.event_tx.clone();
                 let initial_downloaded = item.downloaded_bytes;
+                let session_clone = self.session.clone();
+                let handles_clone = self.handles.clone();
                 let new_monitor = tokio::spawn(async move {
-                    Self::run_monitor_loop(item_id, handle_clone, event_tx, initial_downloaded).await;
+                    Self::run_monitor_loop(
+                        item_id,
+                        handle_clone,
+                        event_tx,
+                        initial_downloaded,
+                        session_clone,
+                        handles_clone,
+                    )
+                    .await;
                 });
 
                 *monitor_task = new_monitor;
@@ -157,8 +168,18 @@ impl TorrentEngine {
                 let handle_clone = handle.clone();
                 let event_tx = self.event_tx.clone();
                 let initial_downloaded = item.downloaded_bytes;
+                let session_clone = self.session.clone();
+                let handles_clone = self.handles.clone();
                 let monitor_task = tokio::spawn(async move {
-                    Self::run_monitor_loop(item_id, handle_clone, event_tx, initial_downloaded).await;
+                    Self::run_monitor_loop(
+                        item_id,
+                        handle_clone,
+                        event_tx,
+                        initial_downloaded,
+                        session_clone,
+                        handles_clone,
+                    )
+                    .await;
                 });
 
                 self.handles
@@ -184,8 +205,18 @@ impl TorrentEngine {
                 let handle_clone = handle.clone();
                 let event_tx = self.event_tx.clone();
                 let initial_downloaded = item.downloaded_bytes;
+                let session_clone = self.session.clone();
+                let handles_clone = self.handles.clone();
                 let monitor_task = tokio::spawn(async move {
-                    Self::run_monitor_loop(item_id, handle_clone, event_tx, initial_downloaded).await;
+                    Self::run_monitor_loop(
+                        item_id,
+                        handle_clone,
+                        event_tx,
+                        initial_downloaded,
+                        session_clone,
+                        handles_clone,
+                    )
+                    .await;
                 });
 
                 self.handles
@@ -217,6 +248,8 @@ impl TorrentEngine {
         handle: Arc<ManagedTorrent>,
         event_tx: broadcast::Sender<EngineUiEvent>,
         initial_downloaded_bytes: u64,
+        session: Arc<Session>,
+        handles: Arc<RwLock<HashMap<usize, (usize, Arc<ManagedTorrent>, tokio::task::JoinHandle<()>)>>>,
     ) {
         let mut last_fetched_bytes = 0;
         let mut smooth_downloaded_bytes = initial_downloaded_bytes;
@@ -374,6 +407,15 @@ impl TorrentEngine {
                     seeds,
                     eta_secs: Some(0),
                 });
+
+                // Release the torrent from librqbit session so all open file handles are immediately closed
+                {
+                    let mut handles_guard = handles.write().await;
+                    if let Some((torrent_id, _, _)) = handles_guard.remove(&item_id) {
+                        let _ = session.delete(TorrentIdOrHash::Id(torrent_id), false).await;
+                    }
+                }
+
                 let _ = event_tx.send(EngineUiEvent::DownloadCompleted {
                     id: item_id,
                     sha256: None,
@@ -421,13 +463,18 @@ impl TorrentEngine {
         }
     }
 
-    /// Cancels and removes a torrent.
-    pub async fn cancel(&self, id: usize) {
+    /// Stops and releases a torrent from the session, closing all file handles without deleting disk files.
+    pub async fn stop_and_release(&self, id: usize) {
         let mut handles_guard = self.handles.write().await;
         if let Some((torrent_id, _, monitor_task)) = handles_guard.remove(&id) {
             monitor_task.abort();
             let _ = self.session.delete(TorrentIdOrHash::Id(torrent_id), false).await;
         }
+    }
+
+    /// Cancels and removes a torrent.
+    pub async fn cancel(&self, id: usize) {
+        self.stop_and_release(id).await;
     }
 
     // /// Updates global torrent speed limit.

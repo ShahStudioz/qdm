@@ -104,11 +104,29 @@ pub(crate) fn handle_connectivity_result(app: &mut QdmApp, is_online: bool) -> T
 /// as failed if their temp files are missing.
 pub(crate) fn handle_sync_with_disk(app: &mut QdmApp) -> Task<Message> {
     let mut changed = false;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    // 1. Remove completed downloads whose target files were deleted externally on disk
     app.downloads.retain(|d| {
-        let target = std::path::Path::new(&d.save_path).join(&d.filename);
-        if matches!(d.state, DownloadState::Completed)
-            && !target.exists()
-        {
+        if matches!(d.state, DownloadState::Completed) {
+            // Safety grace period: allow 3 seconds after completion before checking for external deletion
+            if let Some(completed_at) = d.completed_at {
+                if now.saturating_sub(completed_at) < 3 {
+                    return true;
+                }
+            }
+
+            let target = std::path::Path::new(&d.save_path).join(&d.filename);
+            let staging_dir =
+                std::path::Path::new(&d.save_path).join(format!(".qdmdownload_{}", d.id));
+            let temp_target =
+                std::path::Path::new(&d.save_path).join(format!("{}.qdmdownload", d.filename));
+
+            if !target.exists() && !staging_dir.exists() && !temp_target.exists() {
                 println!(
                     "[QDM Disk Sync] Removed externally deleted completed file: {}",
                     d.filename
@@ -116,6 +134,7 @@ pub(crate) fn handle_sync_with_disk(app: &mut QdmApp) -> Task<Message> {
                 changed = true;
                 return false;
             }
+        }
         true
     });
 
@@ -135,10 +154,10 @@ pub(crate) fn handle_sync_with_disk(app: &mut QdmApp) -> Task<Message> {
 
         if d.downloaded_bytes > 0 {
             let target = std::path::Path::new(&d.save_path).join(&d.filename);
-            let temp_target = std::path::Path::new(&d.save_path)
-                .join(format!("{}.qdmdownload", d.filename));
-            let staging_dir = std::path::Path::new(&d.save_path)
-                .join(format!(".qdmdownload_{}", d.id));
+            let temp_target =
+                std::path::Path::new(&d.save_path).join(format!("{}.qdmdownload", d.filename));
+            let staging_dir =
+                std::path::Path::new(&d.save_path).join(format!(".qdmdownload_{}", d.id));
             if !target.exists()
                 && !temp_target.exists()
                 && !staging_dir.exists()

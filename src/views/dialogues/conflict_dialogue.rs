@@ -68,11 +68,12 @@ pub enum ConflictDialogMessage {
 }
 
 pub fn view(state: &ConflictDialogModel) -> Element<'_, ConflictDialogMessage> {
-    let filename = state
+    let raw_filename = state
         .pending
         .as_ref()
         .map(|p| p.filename.as_str())
         .unwrap_or("file");
+    let filename = crate::models::download::truncate_filename(raw_filename, 48);
 
     let save_to = state
         .pending

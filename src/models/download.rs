@@ -511,9 +511,71 @@ pub fn format_eta(eta_secs: u64) -> String {
     }
 }
 
+/// Truncates a filename to at most `max_len` characters while preserving the file extension.
+/// Uses unicode character counting (not byte length) and appends an ellipsis `…`.
+pub fn truncate_filename(name: &str, max_len: usize) -> String {
+    if max_len == 0 {
+        return String::new();
+    }
+    let char_count = name.chars().count();
+    if char_count <= max_len {
+        return name.to_string();
+    }
+    if max_len <= 3 {
+        return "…".repeat(max_len.min(1));
+    }
+
+    // Try to preserve extension if present and reasonable length
+    let path = std::path::Path::new(name);
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        let ext_char_len = ext.chars().count() + 1; // including the dot
+        // If extension is not absurdly long (leaves at least 3 chars for stem + 1 for ellipsis)
+        if ext_char_len + 4 <= max_len {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                let avail_stem_chars = max_len - ext_char_len - 1; // 1 for ellipsis
+                let truncated_stem: String = stem.chars().take(avail_stem_chars).collect();
+                return format!("{}….{}", truncated_stem, ext);
+            }
+        }
+    }
+
+    // Fallback if no extension or extension is too long: truncate and append ellipsis
+    let prefix: String = name.chars().take(max_len.saturating_sub(1)).collect();
+    format!("{}…", prefix)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_truncate_filename() {
+        // Short names stay intact
+        assert_eq!(truncate_filename("short.zip", 20), "short.zip");
+        assert_eq!(truncate_filename("exact_10ch", 10), "exact_10ch");
+
+        // Long name with extension
+        let truncated = truncate_filename("really_long_filename_that_should_be_truncated.mkv", 25);
+        assert_eq!(truncated.chars().count(), 25);
+        assert!(truncated.ends_with(".mkv"));
+        assert!(truncated.contains('…'));
+        assert_eq!(truncated, "really_long_filename….mkv");
+
+        // Long name without extension
+        let no_ext = truncate_filename("really_long_filename_without_any_extension", 15);
+        assert_eq!(no_ext.chars().count(), 15);
+        assert_eq!(no_ext, "really_long_fi…");
+
+        // Unicode multi-byte characters
+        let unicode = truncate_filename("🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀.zip", 8);
+        assert_eq!(unicode.chars().count(), 8);
+        assert_eq!(unicode, "🦀🦀🦀….zip");
+
+        // Edge cases
+        assert_eq!(truncate_filename("test.exe", 0), "");
+        assert_eq!(truncate_filename("test.exe", 1), "…");
+        assert_eq!(truncate_filename("test.exe", 2), "…");
+    }
 
     #[test]
     fn test_format_speed_parts() {

@@ -101,14 +101,6 @@ fn handle_progress_updated(
             return Task::none();
         }
 
-        // If all bytes have been downloaded, transition to Completed
-        if let Some(total) = item.total_bytes {
-            if total > 0 && downloaded_bytes >= total {
-                item.state = DownloadState::Completed;
-                return Task::none();
-            }
-        }
-
         item.state = DownloadState::Downloading {
             downloaded_bytes,
             total_bytes: item.total_bytes,
@@ -208,23 +200,13 @@ fn handle_download_completed(
     sha256: Option<String>,
 ) -> Task<Message> {
     app.retry_counts.remove(&id);
+    let engine = app.engine.clone();
+
     if let Some(item) = app.downloads.iter_mut().find(|d| d.id == id) {
         println!(
             "[QDM UI] Item {} completed successfully! SHA-256: {:?}",
             id, sha256
         );
-        item.state = DownloadState::Completed;
-        if let Some(total) = item.total_bytes {
-            item.downloaded_bytes = total;
-        }
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        item.completed_at = Some(now);
-        if let Some(hash) = sha256 {
-            item.sha256_hash = Some(hash);
-        }
 
         // Move torrent out of staging folder if it was used
         if let crate::models::download::DownloadType::Torrent(_) = item.download_type {
@@ -244,7 +226,12 @@ fn handle_download_completed(
                             let _ = std::fs::remove_file(&target);
                         }
                     }
-                    let _ = std::fs::rename(&source, &target);
+                    for _ in 0..10 {
+                        if std::fs::rename(&source, &target).is_ok() {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
                 }
                 
                 // Clean up the staging directory (may still contain metadata)
@@ -252,8 +239,29 @@ fn handle_download_completed(
             }
         }
 
+        item.state = DownloadState::Completed;
+        if let Some(total) = item.total_bytes {
+            item.downloaded_bytes = total;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        item.completed_at = Some(now);
+        if let Some(hash) = sha256 {
+            item.sha256_hash = Some(hash);
+        }
+
+        let release_task = Task::perform(
+            async move {
+                engine.cancel(id).await;
+            },
+            |_| Message::Tick,
+        );
+
         // Automatically promote next queued download
-        return app.synchronize_and_persist_queue();
+        let queue_task = app.synchronize_and_persist_queue();
+        return Task::batch([release_task, queue_task]);
     }
     Task::none()
 }

@@ -50,11 +50,12 @@ pub enum DeleteDialogMessage {
 }
 
 pub fn view(state: &DeleteDialogModel) -> Element<'_, DeleteDialogMessage> {
-    let filename = state
+    let raw_filename = state
         .pending
         .as_ref()
         .map(|p| p.filename.as_str())
         .unwrap_or("this download");
+    let filename = crate::models::download::truncate_filename(raw_filename, 48);
 
     let title_text = text("Delete Download")
         .size(17)
