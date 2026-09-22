@@ -247,6 +247,14 @@ pub(crate) fn handle_open_mirrors_modal(app: &mut QdmApp, id: usize) -> Task<Mes
     Task::none()
 }
 
+/// Opens the download details dialog for a download.
+pub(crate) fn handle_open_download_details(app: &mut QdmApp, id: usize) -> Task<Message> {
+    if app.downloads.iter().any(|d| d.id == id) {
+        app.detail_dialog.open(id);
+    }
+    Task::none()
+}
+
 /// Handles the result of saving a new download to storage, adding it to the
 /// download list and starting it or fetching metadata as appropriate.
 pub(crate) fn handle_download_saved(

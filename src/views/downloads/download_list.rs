@@ -11,6 +11,7 @@ pub fn download_list_view<'a, Message>(
     on_cancel: impl Fn(usize) -> Message + 'a + Clone,
     on_open_folder: impl Fn(usize) -> Message + 'a + Clone,
     on_open_mirrors: impl Fn(usize) -> Message + 'a + Clone,
+    on_open_details: impl Fn(usize) -> Message + 'a + Clone,
     on_copy_link: impl Fn(usize) -> Message + 'a + Clone,
     on_item_click: impl Fn(usize) -> Message + 'a + Clone,
 ) -> Element<'a, Message>
@@ -29,6 +30,7 @@ where
             on_cancel.clone(),
             on_open_folder.clone(),
             on_open_mirrors.clone(),
+            on_open_details.clone(),
             on_copy_link.clone(),
             on_item_click.clone(),
         ));

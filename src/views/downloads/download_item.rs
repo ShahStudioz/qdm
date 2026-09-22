@@ -61,6 +61,7 @@ pub fn download_item_view<'a, Message>(
     on_cancel: impl Fn(usize) -> Message + 'a,
     on_open_folder: impl Fn(usize) -> Message + 'a,
     on_open_mirrors: impl Fn(usize) -> Message + 'a,
+    on_open_details: impl Fn(usize) -> Message + 'a,
     on_copy_link: impl Fn(usize) -> Message + 'a,
     on_item_click: impl Fn(usize) -> Message + 'a,
 ) -> Element<'a, Message>
@@ -285,6 +286,10 @@ where
     .style(styles::ghost_button_style)
     .on_press(on_open_mirrors(item_id));
 
+    let info_btn = button(icon(icons::ICON_INFO).size(14))
+        .style(styles::icon_button_style)
+        .on_press(on_open_details(item_id));
+
     let actions_row: Element<Message> = match &item.state {
         DownloadState::FetchingMetadata
         | DownloadState::Downloading { .. }
@@ -297,6 +302,7 @@ where
                 .style(styles::icon_button_style)
                 .on_press(on_cancel(item_id));
             let mut r = row![].spacing(10).align_y(Alignment::Center);
+            r = r.push(info_btn);
             if item.http_meta().is_some() {
                 r = r.push(mirrors_btn);
             }
@@ -310,6 +316,7 @@ where
                 .style(styles::icon_button_style)
                 .on_press(on_cancel(item_id));
             let mut r = row![].spacing(10).align_y(Alignment::Center);
+            r = r.push(info_btn);
             if item.http_meta().is_some() {
                 r = r.push(mirrors_btn);
             }
@@ -323,6 +330,7 @@ where
                 .style(styles::icon_button_style)
                 .on_press(on_cancel(item_id));
             let mut r = row![].spacing(10).align_y(Alignment::Center);
+            r = r.push(info_btn);
             if item.http_meta().is_some() {
                 r = r.push(mirrors_btn);
             }
@@ -336,6 +344,7 @@ where
                 .style(styles::icon_button_style)
                 .on_press(on_cancel(item_id));
             let mut r = row![].spacing(10).align_y(Alignment::Center);
+            r = r.push(info_btn);
             if item.http_meta().is_some() {
                 r = r.push(mirrors_btn);
             }

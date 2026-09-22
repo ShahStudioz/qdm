@@ -114,8 +114,17 @@ impl AppEngine {
                         });
                     }
                     let is_folder = files.len() > 1;
+                    let final_name = if !is_folder && !files.is_empty() {
+                        if !name.contains('.') && files[0].path.contains('.') {
+                            files[0].path.clone()
+                        } else {
+                            name
+                        }
+                    } else {
+                        name
+                    };
                     
-                    return Ok(ProbeResult::Torrent(TorrentInfo { name, files, is_folder }));
+                    return Ok(ProbeResult::Torrent(TorrentInfo { name: final_name, files, is_folder }));
                 }
                 Err("Failed to resolve magnet link".to_string())
             } else {

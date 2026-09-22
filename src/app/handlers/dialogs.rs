@@ -8,7 +8,7 @@
 use crate::app::{Message, QdmApp};
 use crate::models::download::{DownloadItem, DownloadState, FileType};
 use crate::services::shared::storage;
-use crate::views::dialogues::{add_dialogue, conflict_dialogue, delete_dialogue, mirror_dialogue};
+use crate::views::dialogues::{add_dialogue, conflict_dialogue, delete_dialogue, detail_dialogue, mirror_dialogue};
 use crate::views::settings::settings;
 use iced::Task;
 
@@ -96,7 +96,7 @@ fn handle_submit_new_download(app: &mut QdmApp) -> Task<Message> {
     let mut filename = if app.add_dialog.filename.trim().is_empty() {
         add_dialogue::extract_filename(&url, None)
     } else {
-        app.add_dialog.filename.trim().to_string()
+        crate::core::utils::paths::sanitize_filename(app.add_dialog.filename.trim())
     };
 
     let speed_limit_bps = if !app.add_dialog.speed_limit.trim().is_empty() {
@@ -260,7 +260,7 @@ fn handle_quick_add_download(app: &mut QdmApp) -> Task<Message> {
     let (mut filename, total_bytes, dt, has_media, state, is_torrent_folder) = match &app.add_dialog.probe_result {
         Some(crate::services::engine::ProbeResult::Http(m)) => {
             let fname = if !app.add_dialog.filename.trim().is_empty() {
-                app.add_dialog.filename.trim().to_string()
+                crate::core::utils::paths::sanitize_filename(app.add_dialog.filename.trim())
             } else {
                 add_dialogue::extract_filename(&url, m.content_disposition.as_deref())
             };
@@ -282,9 +282,9 @@ fn handle_quick_add_download(app: &mut QdmApp) -> Task<Message> {
         }
         Some(crate::services::engine::ProbeResult::Torrent(info)) => {
             let fname = if !app.add_dialog.filename.trim().is_empty() {
-                app.add_dialog.filename.trim().to_string()
+                crate::core::utils::paths::sanitize_filename(app.add_dialog.filename.trim())
             } else {
-                info.name.clone()
+                crate::core::utils::paths::sanitize_filename(&info.name)
             };
             let mut total = 0;
             let mut has_media = false;
@@ -313,7 +313,7 @@ fn handle_quick_add_download(app: &mut QdmApp) -> Task<Message> {
         }
         None => {
             let fname = if !app.add_dialog.filename.trim().is_empty() {
-                app.add_dialog.filename.trim().to_string()
+                crate::core::utils::paths::sanitize_filename(app.add_dialog.filename.trim())
             } else {
                 add_dialogue::extract_filename(&url, None)
             };
@@ -409,7 +409,7 @@ fn handle_schedule_new_download(app: &mut QdmApp) -> Task<Message> {
     let mut filename = if app.add_dialog.filename.trim().is_empty() {
         add_dialogue::extract_filename(&url, None)
     } else {
-        app.add_dialog.filename.trim().to_string()
+        crate::core::utils::paths::sanitize_filename(app.add_dialog.filename.trim())
     };
 
     let speed_limit_bps = if !app.add_dialog.speed_limit.trim().is_empty() {
@@ -786,6 +786,30 @@ pub(crate) fn handle_delete_dialog_message(
             }
             app.delete_dialog.close();
             Task::none()
+        }
+    }
+}
+
+/// Handles messages from the download details dialog.
+pub(crate) fn handle_detail_dialog_message(
+    app: &mut QdmApp,
+    msg: detail_dialogue::DetailDialogueMessage,
+) -> Task<Message> {
+    match msg {
+        detail_dialogue::DetailDialogueMessage::CloseDetailDialog => {
+            app.detail_dialog.close();
+            Task::none()
+        }
+        detail_dialogue::DetailDialogueMessage::SelectTab(tab) => {
+            app.detail_dialog.current_tab = tab;
+            Task::none()
+        }
+        detail_dialogue::DetailDialogueMessage::CopyText(content, feedback) => {
+            app.detail_dialog.copy_feedback = Some(feedback);
+            iced::clipboard::write(content)
+        }
+        detail_dialogue::DetailDialogueMessage::OpenFolder(id) => {
+            crate::app::handlers::downloads::handle_open_folder(app, id)
         }
     }
 }

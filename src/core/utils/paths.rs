@@ -93,3 +93,131 @@ pub fn generate_unique_folder_name(dir: &str, folder_name: &str) -> String {
         counter += 1;
     }
 }
+
+/// Sanitizes a candidate filename to ensure it is safe for the filesystem (particularly Windows).
+/// - Strips path traversal and directory separators (`/`, `\`), keeping only the leaf filename.
+/// - Replaces illegal Windows characters (`<`, `>`, `:`, `"`, `/`, `\`, `|`, `?`, `*`) and control chars with `_`.
+/// - Trims leading/trailing whitespace and trailing dots/spaces.
+/// - Prefixes Windows reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1..9`, `LPT1..9`) with `_`.
+/// - Enforces a maximum length of 255 characters while preserving the extension.
+/// - Falls back to `"download.file"` if the result is empty.
+pub fn sanitize_filename(name: &str) -> String {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return "download.file".to_string();
+    }
+
+    // Strip any path traversal or leading directory components
+    let leaf = trimmed
+        .replace('\\', "/")
+        .split('/')
+        .filter(|s| !s.is_empty() && *s != "." && *s != "..")
+        .last()
+        .unwrap_or(trimmed)
+        .to_string();
+
+    // Replace illegal Windows filesystem characters and control chars with '_'
+    // Illegal on Windows: < > : " / \ | ? * and ASCII control characters 0x00..=0x1F, 0x7F
+    let mut sanitized: String = leaf
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+
+    // Strip trailing dots and spaces (Windows forbids files ending with a dot or space)
+    let stripped = sanitized.trim_end_matches(|c| c == '.' || c == ' ');
+    if stripped.is_empty() {
+        sanitized = "download.file".to_string();
+    } else {
+        sanitized = stripped.to_string();
+    }
+
+    // Check against Windows reserved device names (CON, PRN, AUX, NUL, COM1..9, LPT1..9)
+    let stem = sanitized.split('.').next().unwrap_or(&sanitized);
+    let stem_upper = stem.to_ascii_uppercase();
+    const RESERVED: &[&str] = &[
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    if RESERVED.contains(&stem_upper.as_str()) {
+        sanitized = format!("_{}", sanitized);
+    }
+
+    // Enforce maximum single-component length (255 chars) while preserving extension
+    if sanitized.len() > 255 {
+        if let Some(dot_idx) = sanitized.rfind('.') {
+            let ext = &sanitized[dot_idx..];
+            if ext.len() < 30 {
+                let keep_stem_len = 255 - ext.len();
+                sanitized = format!("{}{}", &sanitized[..keep_stem_len], ext);
+            } else {
+                sanitized.truncate(255);
+            }
+        } else {
+            sanitized.truncate(255);
+        }
+    }
+
+    if sanitized.trim().is_empty() {
+        "download.file".to_string()
+    } else {
+        sanitized
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_filename_normal() {
+        assert_eq!(sanitize_filename("document.pdf"), "document.pdf");
+        assert_eq!(sanitize_filename("Big Buck Bunny.mp4"), "Big Buck Bunny.mp4");
+        assert_eq!(sanitize_filename("archive_v1.0.tar.gz"), "archive_v1.0.tar.gz");
+    }
+
+    #[test]
+    fn test_sanitize_filename_illegal_chars() {
+        assert_eq!(
+            sanitize_filename("video:part*1?file<name>|.mp4"),
+            "video_part_1_file_name__.mp4"
+        );
+        assert_eq!(
+            sanitize_filename("\"quoted_file\".zip"),
+            "_quoted_file_.zip"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_filename_trailing_dots_and_spaces() {
+        assert_eq!(sanitize_filename("my_document.pdf...   "), "my_document.pdf");
+        assert_eq!(sanitize_filename("...."), "download.file");
+        assert_eq!(sanitize_filename("    "), "download.file");
+        assert_eq!(sanitize_filename(""), "download.file");
+    }
+
+    #[test]
+    fn test_sanitize_filename_path_traversal() {
+        assert_eq!(sanitize_filename("../../etc/passwd"), "passwd");
+        assert_eq!(
+            sanitize_filename("C:\\Users\\Administrator\\secret.key"),
+            "secret.key"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_filename_reserved_device_names() {
+        assert_eq!(sanitize_filename("con.txt"), "_con.txt");
+        assert_eq!(sanitize_filename("CON.iso"), "_CON.iso");
+        assert_eq!(sanitize_filename("aux"), "_aux");
+        assert_eq!(sanitize_filename("NUL.tar.gz"), "_NUL.tar.gz");
+        assert_eq!(sanitize_filename("com1.dat"), "_com1.dat");
+        assert_eq!(sanitize_filename("lpt3.log"), "_lpt3.log");
+    }
+}

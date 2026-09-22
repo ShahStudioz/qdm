@@ -18,7 +18,7 @@ use crate::models::download::DownloadItem;
 use crate::services::http::EngineUiEvent;
 use crate::services::shared::storage;
 use crate::views::components::sidebar;
-use crate::views::dialogues::{add_dialogue, conflict_dialogue, delete_dialogue, mirror_dialogue};
+use crate::views::dialogues::{add_dialogue, conflict_dialogue, delete_dialogue, detail_dialogue, mirror_dialogue};
 use crate::views::settings::settings;
 use iced::Task;
 use std::collections::HashMap;
@@ -61,6 +61,7 @@ pub enum Message {
     CopyLink(usize),
     OpenFolder(usize),
     OpenMirrorsModal(usize),
+    OpenDownloadDetails(usize),
     ItemClicked(usize),
 
     // --- Queue Management ---
@@ -74,6 +75,7 @@ pub enum Message {
     SettingsMessage(settings::SettingsMessage),
     AddDialogueModalMessages(add_dialogue::AddDialogueModalMessage),
     MirrorDialogueMessages(mirror_dialogue::MirrorDialogueMessage),
+    DetailDialogueMessages(detail_dialogue::DetailDialogueMessage),
     ConflictDialogueMessages(conflict_dialogue::ConflictDialogMessage),
     DeleteDialogueMessages(delete_dialogue::DeleteDialogMessage),
 
@@ -117,6 +119,7 @@ pub struct QdmApp {
     pub(crate) settings: settings::SettingsModel,
     pub(crate) add_dialog: add_dialogue::AddDialogModel,
     pub(crate) mirror_dialog: mirror_dialogue::MirrorDialogModel,
+    pub(crate) detail_dialog: detail_dialogue::DetailDialogModel,
     pub(crate) conflict_dialog: conflict_dialogue::ConflictDialogModel,
     pub(crate) delete_dialog: delete_dialogue::DeleteDialogModel,
 
@@ -144,6 +147,7 @@ impl Default for QdmApp {
             settings: settings::SettingsModel::default(),
             add_dialog: add_dialogue::AddDialogModel::default(),
             mirror_dialog: mirror_dialogue::MirrorDialogModel::default(),
+            detail_dialog: detail_dialogue::DetailDialogModel::default(),
             conflict_dialog: conflict_dialogue::ConflictDialogModel::default(),
             delete_dialog: delete_dialogue::DeleteDialogModel::default(),
             engine: crate::services::engine::AppEngine::new(crate::services::http::DownloadEngine::new()),
@@ -336,6 +340,9 @@ impl QdmApp {
             Message::OpenMirrorsModal(id) => {
                 handlers::downloads::handle_open_mirrors_modal(self, id)
             }
+            Message::OpenDownloadDetails(id) => {
+                handlers::downloads::handle_open_download_details(self, id)
+            }
             Message::ItemClicked(id) => handlers::downloads::handle_item_clicked(self, id),
 
             // --- Queue Management ---
@@ -366,6 +373,9 @@ impl QdmApp {
             }
             Message::MirrorDialogueMessages(msg) => {
                 handlers::dialogs::handle_mirror_dialog_message(self, msg)
+            }
+            Message::DetailDialogueMessages(msg) => {
+                handlers::dialogs::handle_detail_dialog_message(self, msg)
             }
             Message::ConflictDialogueMessages(msg) => {
                 handlers::dialogs::handle_conflict_dialog_message(self, msg)

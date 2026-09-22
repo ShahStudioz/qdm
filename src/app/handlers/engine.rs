@@ -217,7 +217,23 @@ fn handle_download_completed(
                 let source = staging_dir.join(&item.filename);
                 let target = std::path::PathBuf::from(&item.save_path).join(&item.filename);
                 
-                if source.exists() {
+                let file_to_move = if source.exists() {
+                    Some(source)
+                } else if let Ok(entries) = std::fs::read_dir(&staging_dir) {
+                    let non_hidden: Vec<_> = entries
+                        .flatten()
+                        .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+                        .collect();
+                    if non_hidden.len() == 1 {
+                        Some(non_hidden[0].path())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                if let Some(src) = file_to_move {
                     // If target already exists (overwrite scenario), remove it first
                     if target.exists() {
                         if target.is_dir() {
@@ -227,7 +243,7 @@ fn handle_download_completed(
                         }
                     }
                     for _ in 0..10 {
-                        if std::fs::rename(&source, &target).is_ok() {
+                        if std::fs::rename(&src, &target).is_ok() {
                             break;
                         }
                         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -250,6 +266,28 @@ fn handle_download_completed(
         item.completed_at = Some(now);
         if let Some(hash) = sha256 {
             item.sha256_hash = Some(hash);
+        }
+
+        // For torrents whose display name lacks an extension, resolve the
+        // actual filename on disk so that future disk-sync checks can find it.
+        if matches!(item.download_type, crate::models::download::DownloadType::Torrent(_)) {
+            if !item.filename.contains('.') {
+                let save = std::path::Path::new(&item.save_path);
+                if let Ok(entries) = std::fs::read_dir(save) {
+                    for entry in entries.flatten() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            if name.starts_with(&item.filename) && name.len() > item.filename.len() {
+                                println!(
+                                    "[QDM] Resolved torrent filename: {} -> {}",
+                                    item.filename, name
+                                );
+                                item.filename = name.to_string();
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         let release_task = Task::perform(

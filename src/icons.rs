@@ -98,6 +98,8 @@ pub const ICON_COPY: char = '\u{f0c5}'; // fa-copy
 pub const ICON_USERS: char = '\u{f0c0}'; // fa-users
 pub const ICON_DOWNLOAD: char = '\u{f019}'; // fa-download
 pub const ICON_UPLOAD: char = '\u{f093}'; // fa-upload
+pub const ICON_INFO: char = '\u{f05a}'; // fa-circle-info
+pub const ICON_MICROCHIP: char = '\u{f2db}'; // fa-microchip
 
 // Window Control Icons
 pub const ICON_WINDOW_MINIMIZE: char = '\u{f068}'; // fa-minus

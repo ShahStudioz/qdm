@@ -100,8 +100,8 @@ pub(crate) fn handle_connectivity_result(app: &mut QdmApp, is_online: bool) -> T
 }
 
 /// Synchronizes the download list with on-disk state. Removes completed
-/// downloads whose files were deleted externally, and marks partial downloads
-/// as failed if their temp files are missing.
+/// downloads whose files were deleted externally — only after a generous
+/// grace period to avoid racing with the completion handler.
 pub(crate) fn handle_sync_with_disk(app: &mut QdmApp) -> Task<Message> {
     let mut changed = false;
 
@@ -110,73 +110,58 @@ pub(crate) fn handle_sync_with_disk(app: &mut QdmApp) -> Task<Message> {
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
-    // 1. Remove completed downloads whose target files were deleted externally on disk
+    // Only remove completed downloads whose target files were deleted externally.
     app.downloads.retain(|d| {
-        if matches!(d.state, DownloadState::Completed) {
-            // Safety grace period: allow 3 seconds after completion before checking for external deletion
-            if let Some(completed_at) = d.completed_at {
-                if now.saturating_sub(completed_at) < 3 {
-                    return true;
+        if !matches!(d.state, DownloadState::Completed) {
+            return true; // never touch non-completed items
+        }
+
+        // If completed_at is not set, the item literally just completed and the
+        // timestamp hasn't been persisted yet — always keep it.
+        let completed_at = match d.completed_at {
+            Some(ts) => ts,
+            None => return true,
+        };
+
+        // Grace period: keep any download that completed less than 60 seconds
+        // ago.  The disk sync timer fires every 5 s, so 60 s gives 12 full
+        // cycles of safety margin.
+        if now.saturating_sub(completed_at) < 60 {
+            return true;
+        }
+
+        // --- File existence checks ---
+        let save = std::path::Path::new(&d.save_path);
+        let target = save.join(&d.filename);
+        let staging_dir = save.join(format!(".qdmdownload_{}", d.id));
+        let temp_target = save.join(format!("{}.qdmdownload", d.filename));
+
+        if target.exists() || staging_dir.exists() || temp_target.exists() {
+            return true;
+        }
+
+        // Torrent filenames often lack an extension (e.g. the torrent "name"
+        // field is just a release title) while the actual file on disk has
+        // one (e.g. ".mkv").  Do a prefix scan of the directory.
+        if !d.filename.contains('.') {
+            if let Ok(entries) = std::fs::read_dir(&d.save_path) {
+                for entry in entries.flatten() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        if name.starts_with(&d.filename) {
+                            return true;
+                        }
+                    }
                 }
             }
-
-            let target = std::path::Path::new(&d.save_path).join(&d.filename);
-            let staging_dir =
-                std::path::Path::new(&d.save_path).join(format!(".qdmdownload_{}", d.id));
-            let temp_target =
-                std::path::Path::new(&d.save_path).join(format!("{}.qdmdownload", d.filename));
-
-            if !target.exists() && !staging_dir.exists() && !temp_target.exists() {
-                println!(
-                    "[QDM Disk Sync] Removed externally deleted completed file: {}",
-                    d.filename
-                );
-                changed = true;
-                return false;
-            }
         }
-        true
+
+        println!(
+            "[QDM Disk Sync] Removed externally deleted completed file: {}",
+            d.filename
+        );
+        changed = true;
+        false
     });
-
-    for d in &mut app.downloads {
-        // Skip items actively managed by the engine — their files may not
-        // exist yet or may be inside a staging directory.
-        if matches!(
-            d.state,
-            DownloadState::Downloading { .. }
-                | DownloadState::FetchingMetadata
-                | DownloadState::Queued
-                | DownloadState::Scheduled
-                | DownloadState::Completed
-        ) {
-            continue;
-        }
-
-        if d.downloaded_bytes > 0 {
-            let target = std::path::Path::new(&d.save_path).join(&d.filename);
-            let temp_target =
-                std::path::Path::new(&d.save_path).join(format!("{}.qdmdownload", d.filename));
-            let staging_dir =
-                std::path::Path::new(&d.save_path).join(format!(".qdmdownload_{}", d.id));
-            if !target.exists()
-                && !temp_target.exists()
-                && !staging_dir.exists()
-                && !matches!(d.state, DownloadState::Failed { .. })
-            {
-                println!(
-                    "[QDM Disk Sync] Partial download missing on disk: {}",
-                    d.filename
-                );
-                d.state = DownloadState::Failed {
-                    downloaded_bytes: 0,
-                    total_bytes: d.total_bytes,
-                    error: "File removed or missing from destination folder".to_string(),
-                };
-                d.downloaded_bytes = 0;
-                changed = true;
-            }
-        }
-    }
 
     if changed {
         let downloads_clone = app.downloads.clone();

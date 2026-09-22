@@ -210,6 +210,10 @@ impl DownloadTaskController {
 
     /// Primary execution lifecycle for the download task.
     pub async fn run(mut self) {
+        let clean_filename = crate::core::utils::paths::sanitize_filename(&self.item.filename);
+        if clean_filename != self.item.filename {
+            self.item.filename = clean_filename;
+        }
         let save_path = PathBuf::from(&self.item.save_path);
         let final_file_path = save_path.join(&self.item.filename);
         let temp_file_path = save_path.join(format!("{}.qdmdownload", self.item.filename));

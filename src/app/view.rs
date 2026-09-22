@@ -9,7 +9,7 @@ use crate::icons::{self, icon};
 use crate::models::download::DownloadState;
 use crate::theme::{colors, styles};
 use crate::views::components::{sidebar, title_bar, toolbar};
-use crate::views::dialogues::{add_dialogue, conflict_dialogue, delete_dialogue, mirror_dialogue};
+use crate::views::dialogues::{add_dialogue, conflict_dialogue, delete_dialogue, detail_dialogue, mirror_dialogue};
 use crate::views::downloads::download_list::download_list_view;
 use crate::views::settings::settings;
 use iced::widget::{column, container, row, stack, text};
@@ -162,6 +162,7 @@ impl QdmApp {
                     Message::CancelDownload,
                     Message::OpenFolder,
                     Message::OpenMirrorsModal,
+                    Message::OpenDownloadDetails,
                     Message::CopyLink,
                     Message::ItemClicked,
                 );
@@ -238,6 +239,17 @@ impl QdmApp {
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into()
+        } else if self.detail_dialog.is_open {
+            if let Some(item) = self.downloads.iter().find(|d| d.id == self.detail_dialog.download_id) {
+                let detail_modal =
+                    detail_dialogue::view(&self.detail_dialog, item).map(Message::DetailDialogueMessages);
+                stack![root_layout, detail_modal]
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into()
+            } else {
+                root_layout.into()
+            }
         } else {
             root_layout.into()
         };

@@ -1,4 +1,5 @@
 use crate::core::utils::paths;
+pub use crate::core::utils::paths::sanitize_filename;
 use crate::icons::{self, icon};
 use crate::models::download::format_bytes;
 use crate::theme::{colors, styles};
@@ -871,13 +872,160 @@ pub fn update(
     Task::none()
 }
 
+fn hex_val(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn percent_decode_bytes(input: &str) -> Vec<u8> {
+    let bytes = input.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(h1), Some(h2)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
+                decoded.push((h1 << 4) | h2);
+                i += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[i]);
+        i += 1;
+    }
+    decoded
+}
+
+/// Decodes percent-encoded strings (e.g. `%20` -> ` `, `%E2%9C%93` -> `✓`).
+pub fn percent_decode(input: &str) -> String {
+    let bytes = percent_decode_bytes(input);
+    String::from_utf8(bytes.clone())
+        .unwrap_or_else(|_| String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// Unquotes an HTTP header parameter value, unescaping `\"` and `\\` if enclosed in double quotes.
+fn unquote_header_value(val: &str) -> String {
+    let trimmed = val.trim();
+    if trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2 {
+        let inner = &trimmed[1..trimmed.len() - 1];
+        let mut unescaped = String::with_capacity(inner.len());
+        let mut chars = inner.chars();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                if let Some(next_c) = chars.next() {
+                    unescaped.push(next_c);
+                } else {
+                    unescaped.push('\\');
+                }
+            } else {
+                unescaped.push(c);
+            }
+        }
+        unescaped
+    } else {
+        trimmed.trim_matches(|c| c == '\'' || c == '"' || c == ';').to_string()
+    }
+}
+
+/// Parses an RFC 6266 / RFC 5987 Content-Disposition header.
+/// - Splits parameters by `;` outside quoted strings.
+/// - Prioritizes RFC 5987 `filename*` over `filename` per RFC 6266 §4.3.
+/// - Supports UTF-8 and ISO-8859-1 charsets with percent-decoding.
+pub fn parse_content_disposition(cd: &str) -> Option<String> {
+    let mut regular_filename: Option<String> = None;
+    let mut ext_filename: Option<String> = None;
+
+    // Tokenize parameters by splitting on ';' while respecting quoted strings
+    let mut params = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut escape = false;
+
+    for ch in cd.chars() {
+        if escape {
+            current.push(ch);
+            escape = false;
+            continue;
+        }
+        if ch == '\\' && in_quotes {
+            escape = true;
+            current.push(ch);
+            continue;
+        }
+        if ch == '"' {
+            in_quotes = !in_quotes;
+            current.push(ch);
+        } else if ch == ';' && !in_quotes {
+            let trimmed = current.trim().to_string();
+            if !trimmed.is_empty() {
+                params.push(trimmed);
+            }
+            current.clear();
+        } else {
+            current.push(ch);
+        }
+    }
+    let trimmed = current.trim().to_string();
+    if !trimmed.is_empty() {
+        params.push(trimmed);
+    }
+
+    for param in params {
+        if let Some((key, val)) = param.split_once('=') {
+            let key = key.trim().to_ascii_lowercase();
+            let val = val.trim();
+
+            if key == "filename*" {
+                // RFC 5987 format: [charset]'[language]'encoded_value
+                // e.g. UTF-8''Win11_25H2_English_x64_v2.iso
+                let raw_val = val.trim_matches('"');
+                let parts: Vec<&str> = raw_val.splitn(3, '\'').collect();
+                if parts.len() == 3 {
+                    let charset = parts[0];
+                    let encoded = parts[2];
+                    let decoded_bytes = percent_decode_bytes(encoded);
+                    let name = if charset.eq_ignore_ascii_case("iso-8859-1")
+                        || charset.eq_ignore_ascii_case("latin1")
+                    {
+                        decoded_bytes.into_iter().map(|b| b as char).collect::<String>()
+                    } else {
+                        String::from_utf8(decoded_bytes.clone())
+                            .unwrap_or_else(|_| String::from_utf8_lossy(&decoded_bytes).into_owned())
+                    };
+                    let trimmed_name = name.trim();
+                    if !trimmed_name.is_empty() {
+                        ext_filename = Some(trimmed_name.to_string());
+                    }
+                } else {
+                    let decoded = percent_decode(raw_val);
+                    let trimmed_name = decoded.trim();
+                    if !trimmed_name.is_empty() {
+                        ext_filename = Some(trimmed_name.to_string());
+                    }
+                }
+            } else if key == "filename" {
+                let unquoted = unquote_header_value(val);
+                let trimmed_name = unquoted.trim();
+                if !trimmed_name.is_empty() {
+                    regular_filename = Some(trimmed_name.to_string());
+                }
+            }
+        }
+    }
+
+    // RFC 6266 §4.3: filename* takes precedence over filename
+    ext_filename.or(regular_filename)
+}
+
 pub fn extract_filename(url_str: &str, content_disposition: Option<&str>) -> String {
     if let Some(cd) = content_disposition {
-        if let Some(pos) = cd.find("filename=") {
-            let filename_part = &cd[pos + 9..];
-            let trimmed = filename_part.trim_matches(|c| c == '"' || c == '\'' || c == ';');
-            if !trimmed.is_empty() {
-                return trimmed.to_string();
+        if let Some(parsed) = parse_content_disposition(cd) {
+            let sanitized = sanitize_filename(&parsed);
+            if sanitized != "download.file" && !sanitized.is_empty() {
+                return sanitized;
             }
         }
     }
@@ -886,29 +1034,32 @@ pub fn extract_filename(url_str: &str, content_disposition: Option<&str>) -> Str
         if url.scheme() == "magnet" {
             for (k, v) in url.query_pairs() {
                 if k == "dn" && !v.trim().is_empty() {
-                    return v.trim().to_string();
+                    return sanitize_filename(v.trim());
                 }
             }
         }
         for (k, v) in url.query_pairs() {
             let k_lower = k.to_lowercase();
             if (k_lower == "filename" || k_lower == "file" || k_lower == "name") && !v.trim().is_empty() {
-                return v.trim().to_string();
+                return sanitize_filename(v.trim());
             }
         }
         if let Some(segments) = url.path_segments() {
             if let Some(last) = segments.last() {
-                let trimmed = last.trim();
-                if !trimmed.is_empty() {
-                    return trimmed.to_string();
+                let decoded = percent_decode(last.trim());
+                let sanitized = sanitize_filename(&decoded);
+                if sanitized != "download.file" && !sanitized.is_empty() {
+                    return sanitized;
                 }
             }
         }
     } else {
         let path = url_str.split('?').next().unwrap_or(url_str);
         if let Some(last) = path.split('/').last() {
-            if !last.is_empty() {
-                return last.to_string();
+            let decoded = percent_decode(last.trim());
+            let sanitized = sanitize_filename(&decoded);
+            if sanitized != "download.file" && !sanitized.is_empty() {
+                return sanitized;
             }
         }
     }
@@ -970,6 +1121,75 @@ mod tests {
                 Some("attachment; filename=\"custom_name.zip\"")
             ),
             "custom_name.zip"
+        );
+    }
+
+    #[test]
+    fn test_extract_filename_microsoft_win11_dual_param() {
+        // Reproduces the exact Microsoft Azure CDN header
+        let cd_quoted = "attachment; filename=\"Win11_25H2_English_x64_v2.iso\"; filename*=UTF-8''Win11_25H2_English_x64_v2.iso";
+        assert_eq!(
+            extract_filename("https://software.download.prss.microsoft.com/dbazure/Win11.iso", Some(cd_quoted)),
+            "Win11_25H2_English_x64_v2.iso"
+        );
+
+        let cd_unquoted = "attachment; filename=Win11_25H2_English_x64_v2.iso; filename*=UTF-8''Win11_25H2_English_x64_v2.iso";
+        assert_eq!(
+            extract_filename("https://software.download.prss.microsoft.com/dbazure/Win11.iso", Some(cd_unquoted)),
+            "Win11_25H2_English_x64_v2.iso"
+        );
+    }
+
+    #[test]
+    fn test_extract_filename_rfc5987_utf8_percent_encoded() {
+        let cd = "attachment; filename*=UTF-8''%E2%9C%93%20Windows%20Update.iso";
+        assert_eq!(
+            extract_filename("https://example.com/get", Some(cd)),
+            "✓ Windows Update.iso"
+        );
+    }
+
+    #[test]
+    fn test_extract_filename_rfc5987_iso8859_1() {
+        let cd = "attachment; filename*=iso-8859-1'en'caf%E9.txt";
+        assert_eq!(
+            extract_filename("https://example.com/file", Some(cd)),
+            "café.txt"
+        );
+    }
+
+    #[test]
+    fn test_extract_filename_quoted_with_semicolon() {
+        let cd = "attachment; filename=\"release; v2.0.zip\"";
+        assert_eq!(
+            extract_filename("https://example.com/dl", Some(cd)),
+            "release; v2.0.zip"
+        );
+    }
+
+    #[test]
+    fn test_extract_filename_extra_parameters() {
+        let cd = "attachment; size=987654321; filename=\"document.pdf\"; modification-date=\"Wed, 12 Feb 1997 16:29:51 -0500\"";
+        assert_eq!(
+            extract_filename("https://example.com/doc", Some(cd)),
+            "document.pdf"
+        );
+    }
+
+    #[test]
+    fn test_extract_filename_sanitizes_windows_illegal_chars() {
+        let cd = "attachment; filename=\"file:with*invalid?chars<foo>bar|.zip\"";
+        assert_eq!(
+            extract_filename("https://example.com/dl", Some(cd)),
+            "file_with_invalid_chars_foo_bar_.zip"
+        );
+    }
+
+    #[test]
+    fn test_extract_filename_url_percent_decoding() {
+        assert_eq!(
+            extract_filename("https://example.com/files/My%20Cool%20Project.zip", None),
+            "My Cool Project.zip"
         );
     }
 }
