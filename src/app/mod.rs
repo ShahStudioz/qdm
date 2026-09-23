@@ -101,6 +101,7 @@ pub enum Message {
     WindowToggleMaximizePressed,
     WindowClosePressed,
     WindowMaximizedResult(bool),
+    #[allow(dead_code)]
     WindowConfigured,
     TrayTick,
 }

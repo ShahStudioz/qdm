@@ -11,7 +11,7 @@
 //! without altering any internal file pointer.
 
 use std::fs::File;
-use std::io::{self, Result as IoResult};
+use std::io::Result as IoResult;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -72,8 +72,8 @@ impl PositionalWriter {
                 let slice = &data[total_written..];
                 let bytes_written = self.file.seek_write(slice, current_offset)?;
                 if bytes_written == 0 {
-                    return Err(io::Error::new(
-                        io::ErrorKind::WriteZero,
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::WriteZero,
                         "Failed to write bytes: OS returned 0 bytes written",
                     ));
                 }

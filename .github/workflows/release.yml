@@ -58,6 +58,7 @@ jobs:
             libssl-dev \
             pkg-config \
             libasound2-dev \
+            libxdo-dev \
             patchelf
 
       - name: Install cargo-packager
