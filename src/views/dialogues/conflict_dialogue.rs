@@ -12,6 +12,9 @@ pub struct ConflictPendingDownload {
     pub speed_limit: Option<u64>,
     pub mirror_urls: Vec<String>,
     pub is_torrent_folder: bool,
+    pub download_type: Option<crate::models::download::DownloadType>,
+    pub total_bytes: Option<u64>,
+    pub is_duplicate_listing: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -87,7 +90,19 @@ pub fn view(state: &ConflictDialogModel) -> Element<'_, ConflictDialogMessage> {
         .map(|p| p.is_torrent_folder)
         .unwrap_or(false);
 
-    let title_label = if is_folder { "Folder Conflict Detected" } else { "File Conflict Detected" };
+    let is_duplicate = state
+        .pending
+        .as_ref()
+        .map(|p| p.is_duplicate_listing)
+        .unwrap_or(false);
+
+    let title_label = if is_duplicate {
+        "Duplicate Download Detected"
+    } else if is_folder {
+        "Folder Conflict Detected"
+    } else {
+        "File Conflict Detected"
+    };
     let title_text = text(title_label)
         .size(16)
         .font(styles::BOLD_FONT)
@@ -142,7 +157,9 @@ pub fn view(state: &ConflictDialogModel) -> Element<'_, ConflictDialogMessage> {
         ..Default::default()
     });
 
-    let detail_description = if is_folder {
+    let detail_description = if is_duplicate {
+        "This download is already in your download list:"
+    } else if is_folder {
         "A folder with this name already exists in destination:"
     } else {
         "A file or partial download with this name already exists in destination:"
@@ -211,7 +228,13 @@ pub fn view(state: &ConflictDialogModel) -> Element<'_, ConflictDialogMessage> {
     .style(styles::ghost_button_style)
     .on_press(ConflictDialogMessage::OverwriteChosen);
 
-    let rename_btn_label = if state.remaining_secs > 0 {
+    let rename_btn_label = if is_duplicate {
+        if state.remaining_secs > 0 {
+            format!("Rename & Download ({}s)", state.remaining_secs)
+        } else {
+            "Rename & Download".to_string()
+        }
+    } else if state.remaining_secs > 0 {
         format!("Auto-Rename & Download ({}s)", state.remaining_secs)
     } else {
         "Auto-Rename & Download".to_string()
@@ -229,25 +252,38 @@ pub fn view(state: &ConflictDialogModel) -> Element<'_, ConflictDialogMessage> {
     .style(styles::primary_button_style)
     .on_press(ConflictDialogMessage::AutoRenameChosen);
 
-    let buttons_row = row![
-        cancel_btn,
-        Space::with_width(Length::Fill),
-        overwrite_btn,
-        rename_btn,
-    ]
-    .spacing(10)
-    .align_y(Alignment::Center);
+    let buttons_row = if is_duplicate {
+        row![
+            cancel_btn,
+            Space::with_width(Length::Fill),
+            rename_btn,
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center)
+    } else {
+        row![
+            cancel_btn,
+            Space::with_width(Length::Fill),
+            overwrite_btn,
+            rename_btn,
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center)
+    };
 
-    let content_col = column![
+    let mut content_col = column![
         auto_timer_banner,
         file_detail_box,
         question_text,
-        remember_chk,
-        Space::with_height(6),
-        buttons_row,
-    ]
-    .spacing(12)
-    .padding([20, 20]);
+    ];
+    if !is_duplicate {
+        content_col = content_col.push(remember_chk);
+    }
+    let content_col = content_col
+        .push(Space::with_height(6))
+        .push(buttons_row)
+        .spacing(12)
+        .padding([20, 20]);
 
     let modal_card = container(column![header_row, header_divider, content_col])
         .width(520)

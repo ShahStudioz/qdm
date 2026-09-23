@@ -152,28 +152,44 @@ pub(crate) fn handle_cancel_download(app: &mut QdmApp, id: usize) -> Task<Messag
     Task::none()
 }
 
+/// Opens a file or directory using the platform's native shell without spawning
+/// a visible console window (avoids cmd.exe flashing on Windows).
+pub(crate) fn open_path_native(path: &std::path::Path) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let wide_path: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        let wide_op: Vec<u16> = std::ffi::OsStr::new("open").encode_wide().chain(std::iter::once(0)).collect();
+        unsafe {
+            windows_sys::Win32::UI::Shell::ShellExecuteW(
+                0,
+                wide_op.as_ptr(),
+                wide_path.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+            );
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg(path)
+            .spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("xdg-open")
+            .arg(path)
+            .spawn();
+    }
+}
+
 /// Opens the save folder for a download using the platform's native file manager.
 pub(crate) fn handle_open_folder(app: &mut QdmApp, id: usize) -> Task<Message> {
     if let Some(item) = app.downloads.iter().find(|d| d.id == id) {
-        let folder_path = item.save_path.clone();
-        #[cfg(target_os = "windows")]
-        {
-            let _ = std::process::Command::new("explorer")
-                .arg(&folder_path)
-                .spawn();
-        }
-        #[cfg(target_os = "macos")]
-        {
-            let _ = std::process::Command::new("open")
-                .arg(&folder_path)
-                .spawn();
-        }
-        #[cfg(target_os = "linux")]
-        {
-            let _ = std::process::Command::new("xdg-open")
-                .arg(&folder_path)
-                .spawn();
-        }
+        let folder_path = std::path::PathBuf::from(&item.save_path);
+        open_path_native(&folder_path);
     }
     Task::none()
 }
@@ -192,32 +208,96 @@ pub(crate) fn handle_item_clicked(app: &mut QdmApp, id: usize) -> Task<Message> 
 }
 
 /// Opens the downloaded file (or folder) using the platform's default application or file manager.
+///
+/// Features smart handling:
+/// - If not completed: HTTP downloads do not open; torrent media files or folders can be opened/streamed.
+/// - If completed: resolves exact file (or matching stem for torrents) and opens with no console window flash.
 pub(crate) fn handle_open_item(app: &mut QdmApp, id: usize) -> Task<Message> {
-    if let Some(item) = app.downloads.iter().find(|d| d.id == id) {
-        let full_path = std::path::PathBuf::from(&item.save_path).join(&item.filename);
-        let target_path = if full_path.exists() {
-            full_path
-        } else {
-            std::path::PathBuf::from(&item.save_path)
-        };
+    if let Some(item) = app.downloads.iter_mut().find(|d| d.id == id) {
+        let is_completed = matches!(item.state, DownloadState::Completed);
 
-        #[cfg(target_os = "windows")]
-        {
-            let _ = std::process::Command::new("cmd")
-                .args(["/C", "start", "", &target_path.to_string_lossy()])
-                .spawn();
+        // Smart behavior for in-progress downloads
+        if !is_completed {
+            match &item.download_type {
+                crate::models::download::DownloadType::Http(_) => {
+                    // HTTP downloads must not open until completed
+                    return Task::none();
+                }
+                crate::models::download::DownloadType::Torrent(tmeta) => {
+                    let is_folder = tmeta.is_folder;
+                    let is_media = item.file_type == crate::models::download::FileType::Media;
+
+                    if !is_folder && !is_media {
+                        // Non-media, non-folder torrents should not open while incomplete
+                        return Task::none();
+                    }
+
+                    // Check for existing media file or folder in save_path or staging
+                    let save_target = std::path::PathBuf::from(&item.save_path).join(&item.filename);
+                    let staging_base = std::path::PathBuf::from(&item.save_path).join(format!(".qdmdownload_{}", item.id));
+                    let staging_target = staging_base.join(&item.filename);
+
+                    let path_to_open = if save_target.exists() {
+                        Some(save_target)
+                    } else if staging_target.exists() {
+                        Some(staging_target)
+                    } else if staging_base.exists() {
+                        if let Ok(entries) = std::fs::read_dir(&staging_base) {
+                            let first_file = entries.flatten()
+                                .find(|e| !e.file_name().to_string_lossy().starts_with('.'))
+                                .map(|e| e.path());
+                            first_file.or(Some(staging_base))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some(path) = path_to_open {
+                        open_path_native(&path);
+                    }
+                    return Task::none();
+                }
+                _ => return Task::none(),
+            }
         }
-        #[cfg(target_os = "macos")]
-        {
-            let _ = std::process::Command::new("open")
-                .arg(&target_path)
-                .spawn();
+
+        // Behavior for Completed downloads:
+        // 1. Check exact path
+        let mut full_path = std::path::PathBuf::from(&item.save_path).join(&item.filename);
+
+        // 2. If exact path does not exist, try stem/extension matching (especially for torrents where filename lacks extension)
+        if !full_path.exists() {
+            let save_dir = std::path::Path::new(&item.save_path);
+            if let Ok(entries) = std::fs::read_dir(save_dir) {
+                for entry in entries.flatten() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        if name.starts_with(&item.filename) && name.len() > item.filename.len() {
+                            let candidate = save_dir.join(name);
+                            if candidate.exists() {
+                                item.filename = name.to_string();
+                                full_path = candidate;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
         }
-        #[cfg(target_os = "linux")]
-        {
-            let _ = std::process::Command::new("xdg-open")
-                .arg(&target_path)
-                .spawn();
+
+        if full_path.exists() {
+            open_path_native(&full_path);
+        } else if item.is_folder() {
+            let dir_path = std::path::PathBuf::from(&item.save_path);
+            if dir_path.exists() {
+                open_path_native(&dir_path);
+            }
+        } else {
+            println!(
+                "[QDM] Cannot open item {}: file does not exist on disk at {:?}",
+                id, full_path
+            );
         }
     }
     Task::none()
@@ -318,6 +398,13 @@ pub(crate) fn handle_background_metadata_fetched(
     id: usize,
     result: Result<crate::services::engine::ProbeResult, String>,
 ) -> Task<Message> {
+    let existing_items: Vec<(String, String)> = app
+        .downloads
+        .iter()
+        .filter(|d| d.id != id)
+        .map(|d| (d.save_path.clone(), d.filename.to_lowercase()))
+        .collect();
+
     if let Some(item) = app.downloads.iter_mut().find(|d| d.id == id) {
         match result {
             Ok(probe) => {
@@ -347,7 +434,43 @@ pub(crate) fn handle_background_metadata_fetched(
                         item.file_type = crate::models::download::FileType::from_filename(&item.filename);
                     }
                     crate::services::engine::ProbeResult::Torrent(info) => {
-                        item.filename = info.name;
+                        let is_generic = item.filename == "Torrent Download" || item.filename.is_empty();
+                        if is_generic {
+                            let base_name = info.name;
+                            let is_duplicate_in_list = existing_items.iter().any(|(p, f)| p == &item.save_path && f == &base_name.to_lowercase());
+                            let conflict = is_duplicate_in_list || if info.is_folder {
+                                crate::core::utils::paths::folder_exists(&item.save_path, &base_name)
+                            } else {
+                                crate::core::utils::paths::file_exists_or_downloading(&item.save_path, &base_name)
+                            };
+                            if conflict {
+                                item.filename = if info.is_folder {
+                                    let mut candidate = crate::core::utils::paths::generate_unique_folder_name(&item.save_path, &base_name);
+                                    let mut counter = 1u32;
+                                    while existing_items.iter().any(|(p, f)| p == &item.save_path && f == &candidate.to_lowercase()) {
+                                        candidate = format!("{} ({})", base_name, counter);
+                                        counter += 1;
+                                    }
+                                    candidate
+                                } else {
+                                    let mut candidate = crate::core::utils::paths::generate_unique_filename(&item.save_path, &base_name);
+                                    let path = std::path::Path::new(&base_name);
+                                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("download");
+                                    let ext = path.extension().and_then(|s| s.to_str());
+                                    let mut counter = 1u32;
+                                    while existing_items.iter().any(|(p, f)| p == &item.save_path && f == &candidate.to_lowercase()) {
+                                        candidate = match ext {
+                                            Some(extension) => format!("{} ({}).{}", stem, counter, extension),
+                                            None => format!("{} ({})", stem, counter),
+                                        };
+                                        counter += 1;
+                                    }
+                                    candidate
+                                };
+                            } else {
+                                item.filename = base_name;
+                            }
+                        }
                         let total_size: u64 = info.files.iter().map(|f| f.size).sum();
                         item.total_bytes = Some(total_size);
                         if let Some(tmeta) = item.torrent_meta_mut() {

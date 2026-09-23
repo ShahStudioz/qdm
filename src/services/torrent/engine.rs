@@ -163,7 +163,13 @@ impl TorrentEngine {
             }
         }
 
-        let use_staging = !(play_media && item.file_type == crate::models::download::FileType::Media);
+        let direct_target = std::path::PathBuf::from(&item.save_path).join(&item.filename);
+        let has_custom_name = item.filename.contains(" (") || direct_target.exists();
+        let use_staging = if has_custom_name {
+            true
+        } else {
+            !(play_media && item.file_type == crate::models::download::FileType::Media)
+        };
         
         let staging_base = std::path::PathBuf::from(&item.save_path).join(format!(".qdmdownload_{}", item.id));
         let final_base = std::path::PathBuf::from(&item.save_path);
@@ -173,7 +179,7 @@ impl TorrentEngine {
         
         // Dynamically move files between staging and final destinations if setting changed
         if use_staging {
-            if final_target.exists() && !staging_base.exists() {
+            if final_target.exists() && !staging_base.exists() && !has_custom_name {
                 let _ = std::fs::create_dir_all(&staging_base);
                 let _ = std::fs::rename(&final_target, &staging_target);
             }
@@ -205,7 +211,7 @@ impl TorrentEngine {
             }
         };
 
-        let opts = AddTorrentOptions {
+        let make_opts = || AddTorrentOptions {
             output_folder: Some(output_folder.to_string_lossy().to_string()),
             overwrite: true,
             only_files: torrent_meta.selected_files.clone(),
@@ -215,7 +221,7 @@ impl TorrentEngine {
         let add_torrent = Self::make_add_torrent(&torrent_meta.magnet_uri)?;
         let response = self
             .session
-            .add_torrent(add_torrent, Some(opts))
+            .add_torrent(add_torrent, Some(make_opts()))
             .await
             .map_err(|e| {
                 println!("[QDM Torrent] add_torrent failed for item {}: {}", item_id, e);
@@ -257,11 +263,28 @@ impl TorrentEngine {
                 });
             }
             AddTorrentResponse::AlreadyManaged(torrent_id, handle) => {
-                // The torrent was already in the librqbit session (from persistence).
-                // It's likely paused/stopped — we must explicitly unpause it.
-                let _ = self.session.unpause(&handle).await;
+                // If this download item is not already tracked in self.handles,
+                // the torrent was left in the session (e.g. from probe_metadata or a prior run)
+                // with potentially wrong/stale output_folder settings.
+                // Remove it from session and re-add fresh with the current output_folder!
+                let _ = self.session.delete(TorrentIdOrHash::Id(torrent_id), false).await;
 
-                let handle_clone = handle.clone();
+                let add_torrent = Self::make_add_torrent(&torrent_meta.magnet_uri)?;
+                let retry_resp = self.session.add_torrent(add_torrent, Some(make_opts())).await;
+
+                let (actual_id, actual_handle) = match retry_resp {
+                    Ok(AddTorrentResponse::Added(id, h)) => (id, h),
+                    Ok(AddTorrentResponse::AlreadyManaged(id, h)) => {
+                        let _ = self.session.unpause(&h).await;
+                        (id, h)
+                    }
+                    _ => {
+                        let _ = self.session.unpause(&handle).await;
+                        (torrent_id, handle)
+                    }
+                };
+
+                let handle_clone = actual_handle.clone();
                 let event_tx = self.event_tx.clone();
                 let initial_downloaded = item.downloaded_bytes;
                 let session_clone = self.session.clone();
@@ -281,7 +304,7 @@ impl TorrentEngine {
                 self.handles
                     .write()
                     .await
-                    .insert(item_id, (torrent_id, handle, monitor_task));
+                    .insert(item_id, (actual_id, actual_handle, monitor_task));
 
                 let _ = self.event_tx.send(EngineUiEvent::StateChanged {
                     id: item_id,

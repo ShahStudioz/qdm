@@ -179,12 +179,12 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
             let browse_torrent_btn = button(
                 row![
                     icon(icons::ICON_FOLDER).size(13).color(colors::TORRENT),
-                    text(".torrent").size(12).color(colors::TORRENT),
+                    text(".torrent").size(12).font(styles::BOLD_FONT).color(colors::TORRENT),
                 ]
-                .spacing(4)
+                .spacing(5)
                 .align_y(Alignment::Center),
             )
-            .padding([4, 8])
+            .padding([8, 12])
             .style(styles::ghost_button_style)
             .on_press(AddDialogueModalMessage::AddBrowseTorrentPressed);
 
@@ -196,11 +196,12 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                 .style(styles::transparent_text_input_style);
 
             let url_box = container(
-                row![paste_btn, browse_torrent_btn, url_widget]
+                row![paste_btn, url_widget]
                     .spacing(4)
                     .align_y(Alignment::Center),
             )
             .padding([0, 6])
+            .width(Length::Fill)
             .style(|_| container::Style {
                 background: Some(iced::Background::Color(colors::SURFACE_HIGH)),
                 border: iced::Border {
@@ -215,7 +216,11 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                 ..Default::default()
             });
 
-            let url_group = column![url_label, url_box].spacing(6);
+            let url_input_row = row![url_box, browse_torrent_btn]
+                .spacing(8)
+                .align_y(Alignment::Center);
+
+            let url_group = column![url_label, url_input_row].spacing(6);
 
             let info_note = text("Tip: You can Inspect to configure details, or click 'Quick Add' to start immediately while metadata loads in background.")
                 .size(11)
@@ -772,7 +777,7 @@ pub fn update(
         AddDialogueModalMessage::ClipboardContentRead(content) => {
             if let Some(text_val) = content {
                 let trimmed = text_val.trim().to_string();
-                if !trimmed.is_empty() {
+                if is_valid_url_or_magnet(&trimmed) {
                     state.url = trimmed;
                     state.has_error = false;
                     state.error.clear();
@@ -1107,6 +1112,17 @@ pub fn extract_filename(url_str: &str, content_disposition: Option<&str>) -> Str
     }
 }
 
+/// Checks if a string looks like a valid downloadable URL, magnet link, or .torrent path.
+pub fn is_valid_url_or_magnet(s: &str) -> bool {
+    let lower = s.to_lowercase();
+    lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("ftp://")
+        || lower.starts_with("magnet:?")
+        || lower.ends_with(".torrent")
+        || (std::path::Path::new(s).is_file() && lower.ends_with(".torrent"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1227,5 +1243,20 @@ mod tests {
             extract_filename("https://example.com/files/My%20Cool%20Project.zip", None),
             "My Cool Project.zip"
         );
+    }
+
+    #[test]
+    fn test_is_valid_url_or_magnet() {
+        assert!(is_valid_url_or_magnet("http://example.com/file.zip"));
+        assert!(is_valid_url_or_magnet("https://example.com/image.png"));
+        assert!(is_valid_url_or_magnet("ftp://server.org/archive.tar.gz"));
+        assert!(is_valid_url_or_magnet("magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335380dc1d7d1ee&dn=archlinux.iso"));
+        assert!(is_valid_url_or_magnet("C:\\Downloads\\ubuntu.torrent"));
+        assert!(is_valid_url_or_magnet("/tmp/test.torrent"));
+
+        assert!(!is_valid_url_or_magnet("hello world"));
+        assert!(!is_valid_url_or_magnet("random text"));
+        assert!(!is_valid_url_or_magnet("C:\\Documents\\resume.docx"));
+        assert!(!is_valid_url_or_magnet(""));
     }
 }

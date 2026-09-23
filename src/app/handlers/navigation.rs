@@ -29,6 +29,7 @@ pub(crate) fn handle_search_changed(app: &mut QdmApp, query: String) -> Task<Mes
 }
 
 /// Opens the "Add URL" dialog, pre-populated with current settings.
+/// Automatically checks the clipboard to paste any valid URL or magnet link.
 pub(crate) fn handle_add_url_pressed(app: &mut QdmApp) -> Task<Message> {
     app.is_topbar_menu_open = false;
     app.add_dialog.reset();
@@ -40,7 +41,14 @@ pub(crate) fn handle_add_url_pressed(app: &mut QdmApp) -> Task<Message> {
     }
     app.add_dialog.engine = Some(app.engine.clone());
     app.add_dialog.is_open = true;
-    Task::none()
+
+    iced::clipboard::read().map(|opt| {
+        Message::AddDialogueModalMessages(
+            crate::views::dialogues::add_dialogue::AddDialogueModalMessage::ClipboardContentRead(
+                opt,
+            ),
+        )
+    })
 }
 
 /// Navigates to the Settings view.
