@@ -50,7 +50,9 @@ icons = [
     "assets/icons/128x128.png",
     "assets/icons/256x256.png",
     "assets/icons/512x512.png",
-    "assets/icons/1024x1024.png"
+    "assets/icons/1024x1024.png",
+    "assets/icons/icon.ico",
+    "assets/icons/icon.icns"
 ]
 resources = ["assets"]
 out-dir = "dist"
