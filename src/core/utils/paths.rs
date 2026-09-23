@@ -35,15 +35,27 @@ pub fn get_update_cache_path() -> PathBuf {
 }
 
 
-/// Returns the default user download directory, falling back to `~/.qdm/downloads`.
+/// Returns the default user download directory, ensuring it exists on disk, falling back to `~/.qdm/downloads`.
 pub fn get_default_download_dir() -> String {
-    dirs::download_dir()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|| {
-            let path = get_qdm_dir().join("downloads");
-            let _ = std::fs::create_dir_all(&path);
-            path.to_string_lossy().to_string()
-        })
+    let dir = dirs::download_dir()
+        .unwrap_or_else(|| get_qdm_dir().join("downloads"));
+    let _ = std::fs::create_dir_all(&dir);
+    dir.to_string_lossy().to_string()
+}
+
+/// Returns true if the string is a magnet link, a .torrent URL, or a .torrent file path.
+pub fn is_torrent_target(target: &str) -> bool {
+    let t = target.trim();
+    if t.starts_with("magnet:") {
+        return true;
+    }
+    let lower = t.to_ascii_lowercase();
+    let path_part = lower.split('?').next().unwrap_or(&lower);
+    if path_part.ends_with(".torrent") {
+        return true;
+    }
+    let p = std::path::Path::new(t);
+    p.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("torrent"))
 }
 
 /// Checks if either `filename` or `filename.qdmdownload` exists in the target directory.

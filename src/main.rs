@@ -13,6 +13,12 @@ mod views;
 use app::QdmApp;
 
 fn main() -> iced::Result {
+    // Single-instance check: notify existing instance if running, then exit immediately
+    let cli_arg = std::env::args().nth(1);
+    if core::single_instance::notify_existing_or_acquire(cli_arg) {
+        return Ok(());
+    }
+
     let window_icon = icons::load_window_icon();
 
     iced::application("Quick Download Manager", QdmApp::update, QdmApp::view)

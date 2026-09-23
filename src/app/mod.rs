@@ -104,6 +104,9 @@ pub enum Message {
     #[allow(dead_code)]
     WindowConfigured,
     TrayTick,
+
+    // --- Single-Instance IPC ---
+    SingleInstanceCommand(crate::core::single_instance::SingleInstanceCommand),
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +221,7 @@ impl QdmApp {
         let default_dir = std::path::PathBuf::from(initial_settings.download_folder.clone());
         let torrent_task = Task::perform(
             async move {
-                engine_clone.init_torrent(default_dir).await;
+                let _ = engine_clone.init_torrent(default_dir).await;
             },
             |_| Message::TorrentEngineInitialized,
         );
@@ -237,7 +240,15 @@ impl QdmApp {
             Task::none()
         };
 
-        (app, Task::batch([downloads_task, torrent_task, window_task, update_check_task]))
+        let initial_arg_task = if let Some(arg) = crate::core::single_instance::take_initial_arg() {
+            Task::perform(async move { arg }, |url| {
+                Message::SingleInstanceCommand(crate::core::single_instance::SingleInstanceCommand::Open(url))
+            })
+        } else {
+            Task::none()
+        };
+
+        (app, Task::batch([downloads_task, torrent_task, window_task, update_check_task, initial_arg_task]))
     }
 
 
@@ -487,6 +498,22 @@ impl QdmApp {
                     }
                 }
                 Task::none()
+            }
+            Message::SingleInstanceCommand(cmd) => {
+                let restore_task = handlers::window::handle_restore_from_tray(self);
+                match cmd {
+                    crate::core::single_instance::SingleInstanceCommand::Focus => restore_task,
+                    crate::core::single_instance::SingleInstanceCommand::Open(url) => {
+                        let add_task = handlers::navigation::handle_add_url_pressed(self);
+                        self.add_dialog.url = url;
+                        let probe_task = add_dialogue::update(
+                            &mut self.add_dialog,
+                            add_dialogue::AddDialogueModalMessage::FetchFileInfoPressed,
+                        )
+                        .map(Message::AddDialogueModalMessages);
+                        Task::batch([restore_task, add_task, probe_task])
+                    }
+                }
             }
         }
     }

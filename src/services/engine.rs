@@ -53,12 +53,21 @@ impl AppEngine {
         }
     }
     
-    pub async fn init_torrent(&self, dir: std::path::PathBuf) {
+    pub async fn init_torrent(&self, dir: std::path::PathBuf) -> Result<(), String> {
         let mut lock = self.torrent.write().await;
         if lock.is_none() {
-            if let Ok(engine) = TorrentEngine::new(dir, self.ui_event_tx.clone()).await {
-                *lock = Some(engine);
+            match TorrentEngine::new(dir, self.ui_event_tx.clone()).await {
+                Ok(engine) => {
+                    *lock = Some(engine);
+                    Ok(())
+                }
+                Err(e) => {
+                    eprintln!("[QDM Engine] Failed to initialize torrent engine: {}", e);
+                    Err(e)
+                }
             }
+        } else {
+            Ok(())
         }
     }
 
@@ -70,6 +79,10 @@ impl AppEngine {
         match item.download_type {
             DownloadType::Http(_) | DownloadType::Update(_) => self.http.start_or_resume(item).await,
             DownloadType::Torrent(_) => {
+                if self.torrent.read().await.is_none() {
+                    let dir = std::path::PathBuf::from(crate::core::utils::paths::get_default_download_dir());
+                    let _ = self.init_torrent(dir).await;
+                }
                 if let Some(engine) = self.torrent.read().await.as_ref() {
                     let _ = engine.start_or_resume(&item, play_media).await;
                 }
@@ -99,7 +112,16 @@ impl AppEngine {
     }
 
     pub async fn probe_metadata(&self, url: &str) -> Result<ProbeResult, String> {
-        if url.starts_with("magnet:") {
+        let is_torrent = crate::core::utils::paths::is_torrent_target(url);
+        if is_torrent {
+            // Check if torrent engine is ready; if not, initialize on-demand
+            if self.torrent.read().await.is_none() {
+                let dir = std::path::PathBuf::from(crate::core::utils::paths::get_default_download_dir());
+                if let Err(e) = self.init_torrent(dir).await {
+                    return Err(format!("Torrent engine could not be initialized: {}", e));
+                }
+            }
+
             let engine_opt = self.torrent.read().await;
             if let Some(engine) = engine_opt.as_ref() {
                 let resp = engine.probe_metadata(url).await?;
@@ -126,9 +148,9 @@ impl AppEngine {
                     
                     return Ok(ProbeResult::Torrent(TorrentInfo { name: final_name, files, is_folder }));
                 }
-                Err("Failed to resolve magnet link".to_string())
+                Err("Failed to resolve torrent metadata".to_string())
             } else {
-                Err("Torrent engine not initialized".to_string())
+                Err("Torrent engine not initialized. Please ensure the download folder is accessible.".to_string())
             }
         } else {
             let meta = self.http.probe_metadata(url).await?;

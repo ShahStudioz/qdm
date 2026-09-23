@@ -318,7 +318,7 @@ fn handle_quick_add_download(app: &mut QdmApp) -> Task<Message> {
                 add_dialogue::extract_filename(&url, None)
             };
             let has_media = crate::models::download::FileType::from_filename(&fname) == crate::models::download::FileType::Media;
-            let dt = if url.starts_with("magnet:") {
+            let dt = if crate::core::utils::paths::is_torrent_target(&url) {
                 crate::models::download::DownloadType::Torrent(crate::models::download::TorrentMetadata {
                     magnet_uri: url.clone(),
                     info_hash: Some(String::new()),

@@ -49,6 +49,18 @@ impl QdmApp {
         let tray_sub = iced::time::every(std::time::Duration::from_millis(300))
             .map(|_| Message::TrayTick);
 
+        // --- Single-instance IPC command stream ---
+        let ipc_sub = Subscription::run_with_id(
+            "qdm_single_instance_ipc_stream",
+            iced::stream::channel(16, move |mut output| async move {
+                use iced::futures::SinkExt;
+                let mut rx = crate::core::single_instance::subscribe();
+                while let Ok(cmd) = rx.recv().await {
+                    let _ = output.send(Message::SingleInstanceCommand(cmd)).await;
+                }
+            }),
+        );
+
         Subscription::batch([
             engine_sub,
             anim_sub,
@@ -57,6 +69,7 @@ impl QdmApp {
             network_check_sub,
             window_sub,
             tray_sub,
+            ipc_sub,
         ])
     }
 }

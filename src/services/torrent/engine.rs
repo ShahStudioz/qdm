@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use librqbit::{
-    Session, AddTorrent, AddTorrentOptions, AddTorrentResponse,
+    Session, SessionOptions, DhtSessionConfig, dht::DhtPersistenceConfig,
+    AddTorrent, AddTorrentOptions, AddTorrentResponse,
     ManagedTorrent,
     api::TorrentIdOrHash,
 };
@@ -25,9 +26,55 @@ impl TorrentEngine {
         default_download_dir: PathBuf,
         event_tx: broadcast::Sender<EngineUiEvent>,
     ) -> Result<Self, String> {
-        let session = Session::new(default_download_dir)
-            .await
-            .map_err(|e| format!("Failed to initialize librqbit Session: {}", e))?;
+        // Ensure default download directory exists on disk
+        let _ = std::fs::create_dir_all(&default_download_dir);
+
+        // Safe custom DHT persistence path in ~/.qdm/dht.json
+        let qdm_dir = crate::core::utils::paths::get_qdm_dir();
+        let dht_path = qdm_dir.join("dht.json");
+
+        // Tier 1: Try with custom persistent DHT in ~/.qdm/
+        let opts = SessionOptions {
+            dht: Some(DhtSessionConfig {
+                bootstrap_addrs: None,
+                port: None,
+                persistence: Some(DhtPersistenceConfig {
+                    config_filename: Some(dht_path.clone()),
+                    dump_interval: None,
+                }),
+            }),
+            ..Default::default()
+        };
+
+        let session = match Session::new_with_opts(default_download_dir.clone(), opts).await {
+            Ok(s) => s,
+            Err(e1) => {
+                eprintln!("[QDM Torrent] Warning: init with persistent DHT failed ({:?}), trying in-memory DHT...", e1);
+                // Tier 2: Try with in-memory DHT (no disk persistence)
+                let opts_mem_dht = SessionOptions {
+                    dht: Some(DhtSessionConfig {
+                        bootstrap_addrs: None,
+                        port: None,
+                        persistence: None,
+                    }),
+                    ..Default::default()
+                };
+                match Session::new_with_opts(default_download_dir.clone(), opts_mem_dht).await {
+                    Ok(s) => s,
+                    Err(e2) => {
+                        eprintln!("[QDM Torrent] Warning: init with in-memory DHT failed ({:?}), trying tracker-only mode...", e2);
+                        // Tier 3: Try without DHT (tracker-only mode)
+                        let opts_no_dht = SessionOptions {
+                            dht: None,
+                            ..Default::default()
+                        };
+                        Session::new_with_opts(default_download_dir, opts_no_dht)
+                            .await
+                            .map_err(|e3| format!("Failed to initialize librqbit session: {}", e3))?
+                    }
+                }
+            }
+        };
 
         Ok(Self {
             session,
@@ -36,22 +83,34 @@ impl TorrentEngine {
         })
     }
 
-    // pub fn subscribe(&self) -> broadcast::Receiver<EngineUiEvent> {
-    //     self.event_tx.subscribe()
-    // }
+    /// Constructs an `AddTorrent` from either a URL/magnet link or a local file path.
+    pub fn make_add_torrent(target: &str) -> Result<AddTorrent<'static>, String> {
+        let trimmed = target.trim();
+        if trimmed.starts_with("magnet:") || trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+            Ok(AddTorrent::Url(trimmed.to_string().into()))
+        } else if std::path::Path::new(trimmed).exists() {
+            let bytes = std::fs::read(trimmed)
+                .map_err(|e| format!("Failed to read .torrent file at {}: {}", trimmed, e))?;
+            Ok(AddTorrent::from_bytes(bytes))
+        } else {
+            Ok(AddTorrent::Url(trimmed.to_string().into()))
+        }
+    }
 
-    /// Resolves a magnet link or .torrent URL to fetch its metadata and file tree
+    /// Resolves a magnet link, .torrent URL, or local .torrent file to fetch its metadata and file tree
     /// without starting the download.
-    pub async fn probe_metadata(&self, magnet: &str) -> Result<AddTorrentResponse, String> {
+    pub async fn probe_metadata(&self, target: &str) -> Result<AddTorrentResponse, String> {
         let opts = AddTorrentOptions {
             list_only: true,
             overwrite: false,
             ..Default::default()
         };
 
+        let add_torrent = Self::make_add_torrent(target)?;
+
         let response = self
             .session
-            .add_torrent(AddTorrent::Url(magnet.into()), Some(opts))
+            .add_torrent(add_torrent, Some(opts))
             .await
             .map_err(|e| e.to_string())?;
 
@@ -153,7 +212,7 @@ impl TorrentEngine {
             ..Default::default()
         };
 
-        let add_torrent = AddTorrent::Url(torrent_meta.magnet_uri.clone().into());
+        let add_torrent = Self::make_add_torrent(&torrent_meta.magnet_uri)?;
         let response = self
             .session
             .add_torrent(add_torrent, Some(opts))
@@ -481,4 +540,17 @@ impl TorrentEngine {
     // pub async fn update_speed_limit(&self, _limit: Option<u64>) {
     //     // librqbit speed limits can be added here if needed
     // }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_torrent_engine_init() {
+        let dir = dirs::download_dir().unwrap_or_else(|| std::env::temp_dir());
+        let (tx, _) = broadcast::channel(16);
+        let res = TorrentEngine::new(dir, tx).await;
+        assert!(res.is_ok(), "TorrentEngine::new failed: {:?}", res.err());
+    }
 }

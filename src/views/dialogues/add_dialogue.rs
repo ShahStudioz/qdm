@@ -176,7 +176,19 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
             .style(styles::ghost_button_style)
             .on_press(AddDialogueModalMessage::PasteFromClipboard);
 
-            let url_widget = text_input("https://example.com/file.zip", &state.url)
+            let browse_torrent_btn = button(
+                row![
+                    icon(icons::ICON_FOLDER).size(13).color(colors::TORRENT),
+                    text(".torrent").size(12).color(colors::TORRENT),
+                ]
+                .spacing(4)
+                .align_y(Alignment::Center),
+            )
+            .padding([4, 8])
+            .style(styles::ghost_button_style)
+            .on_press(AddDialogueModalMessage::AddBrowseTorrentPressed);
+
+            let url_widget = text_input("https://... or magnet: or .torrent file", &state.url)
                 .on_input(AddDialogueModalMessage::AddUrlChanged)
                 .on_submit(AddDialogueModalMessage::FetchFileInfoPressed)
                 .padding([10, 10])
@@ -184,7 +196,7 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                 .style(styles::transparent_text_input_style);
 
             let url_box = container(
-                row![paste_btn, url_widget]
+                row![paste_btn, browse_torrent_btn, url_widget]
                     .spacing(4)
                     .align_y(Alignment::Center),
             )
@@ -724,6 +736,8 @@ pub enum AddDialogueModalMessage {
     CloseAddDialog,
     PasteFromClipboard,
     ClipboardContentRead(Option<String>),
+    AddBrowseTorrentPressed,
+    TorrentFilePicked(Option<String>),
     AddUrlChanged(String),
     FetchFileInfoPressed,
     FileMetaDataFetched(Result<crate::services::engine::ProbeResult, String>),
@@ -765,6 +779,27 @@ pub fn update(
                 }
             }
         }
+        AddDialogueModalMessage::AddBrowseTorrentPressed => {
+            return Task::perform(
+                async {
+                    let file = rfd::AsyncFileDialog::new()
+                        .set_title("Select .torrent File")
+                        .add_filter("Torrent Files", &["torrent"])
+                        .pick_file()
+                        .await;
+                    file.map(|f| f.path().to_string_lossy().to_string())
+                },
+                AddDialogueModalMessage::TorrentFilePicked,
+            );
+        }
+        AddDialogueModalMessage::TorrentFilePicked(path_opt) => {
+            if let Some(path) = path_opt {
+                state.url = path;
+                state.has_error = false;
+                state.error.clear();
+                return update(state, AddDialogueModalMessage::FetchFileInfoPressed);
+            }
+        }
         AddDialogueModalMessage::AddUrlChanged(url) => {
             state.url = url;
             state.has_error = false;
@@ -772,12 +807,13 @@ pub fn update(
         }
         AddDialogueModalMessage::FetchFileInfoPressed => {
             let url = state.url.trim().to_string();
+            let is_torrent = crate::core::utils::paths::is_torrent_target(&url);
             if url.is_empty() {
                 state.has_error = true;
-                state.error = "Please enter a valid download URL".to_string();
-            } else if !url.starts_with("http://") && !url.starts_with("https://") && !url.starts_with("magnet:") {
+                state.error = "Please enter a valid download URL or select a .torrent file".to_string();
+            } else if !url.starts_with("http://") && !url.starts_with("https://") && !url.starts_with("magnet:") && !is_torrent {
                 state.has_error = true;
-                state.error = "URL must start with http://, https://, or magnet:".to_string();
+                state.error = "URL must start with http://, https://, magnet:, or be a local .torrent file".to_string();
             } else {
                 state.step = AddDialogStep::FetchingInfo;
                 state.has_error = false;
