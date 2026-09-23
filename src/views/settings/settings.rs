@@ -51,7 +51,7 @@ fn default_listen_port() -> String {
 }
 
 fn default_update_api_url() -> String {
-    "https://qdm_web.test/api/v1/version-check".to_string()
+    "https://qdm.shahstudioz.store/api/v1/version-check".to_string()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
