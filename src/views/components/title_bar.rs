@@ -21,7 +21,7 @@ where
         .color(colors::TEXT_PRIMARY);
 
     let version_badge = container(
-        text("v0.1.0")
+        text(crate::core::version::APP_VERSION_TAG)
             .size(9)
             .font(styles::BOLD_FONT)
             .color(colors::TEXT_MUTED),

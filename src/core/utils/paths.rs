@@ -20,6 +20,21 @@ pub fn get_settings_json_path() -> PathBuf {
     get_qdm_dir().join("settings.json")
 }
 
+/// Returns the update downloads directory at `~/.qdm/updates`, creating it if it doesn't exist.
+pub fn get_updates_dir() -> PathBuf {
+    let dir = get_qdm_dir().join("updates");
+    if !dir.exists() {
+        let _ = std::fs::create_dir_all(&dir);
+    }
+    dir
+}
+
+/// Returns the path to the update cache metadata file (`~/.qdm/update_cache.json`).
+pub fn get_update_cache_path() -> PathBuf {
+    get_qdm_dir().join("update_cache.json")
+}
+
+
 /// Returns the default user download directory, falling back to `~/.qdm/downloads`.
 pub fn get_default_download_dir() -> String {
     dirs::download_dir()

@@ -186,6 +186,22 @@ pub fn view<'a>(
             },
             ..Default::default()
         }),
+        DownloadType::Update(_) => container(
+            text("App Update (HTTP)")
+                .size(10)
+                .font(styles::BOLD_FONT)
+                .color(colors::WARNING),
+        )
+        .padding([2, 6])
+        .style(|_| container::Style {
+            background: Some(iced::Background::Color(colors::SURFACE)),
+            border: iced::Border {
+                color: colors::WARNING,
+                width: 1.0,
+                radius: 4.0.into(),
+            },
+            ..Default::default()
+        }),
         DownloadType::Torrent(_) => container(
             text("BitTorrent P2P")
                 .size(10)
@@ -300,7 +316,7 @@ pub fn view<'a>(
 
     // --- Tab Switcher ---
     let tab_streams_label = match &item.download_type {
-        DownloadType::Http(h) => format!("Streams & Connections ({})", h.chunks.len()),
+        DownloadType::Http(h) | DownloadType::Update(h) => format!("Streams & Connections ({})", h.chunks.len()),
         DownloadType::Torrent(_) => "Swarm & Diagnostics".to_string(),
     };
 
@@ -360,7 +376,9 @@ pub fn view<'a>(
     let body_content: Element<'a, DetailDialogueMessage> = match state.current_tab {
         DetailDialogTab::Overview => render_overview_tab(item),
         DetailDialogTab::Connections => match &item.download_type {
-            DownloadType::Http(http) => render_http_connections_tab(item, http),
+            DownloadType::Http(http) | DownloadType::Update(http) => {
+                render_http_connections_tab(item, http)
+            }
             DownloadType::Torrent(torrent) => render_torrent_swarm_tab(item, torrent),
         },
     };

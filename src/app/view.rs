@@ -21,10 +21,11 @@ impl QdmApp {
     /// Composes the sidebar navigation, toolbar, main content area (download list,
     /// queue view, or settings), schedule banner, and any active modal dialogs.
     pub fn view(&self) -> Element<'_, Message> {
-        // --- Sidebar badge counts ---
+        // --- Sidebar badge counts (excluding internal updates) ---
         let downloading_count = self
             .downloads
             .iter()
+            .filter(|d| !d.download_type.is_update())
             .filter(|d| {
                 matches!(
                     d.state,
@@ -39,21 +40,28 @@ impl QdmApp {
         let completed_count = self
             .downloads
             .iter()
+            .filter(|d| !d.download_type.is_update())
             .filter(|d| matches!(d.state, DownloadState::Completed))
             .count();
 
         let failed_count = self
             .downloads
             .iter()
+            .filter(|d| !d.download_type.is_update())
             .filter(|d| matches!(d.state, DownloadState::Failed { .. }))
             .count();
 
-        let scheduled_count = self.downloads.iter().filter(|d| d.is_scheduled).count();
+        let scheduled_count = self
+            .downloads
+            .iter()
+            .filter(|d| !d.download_type.is_update() && d.is_scheduled)
+            .count();
 
-        // --- Aggregate speeds for toolbar ---
+        // --- Aggregate speeds for toolbar (excluding internal updates) ---
         let total_download_speed_bps: u64 = self
             .downloads
             .iter()
+            .filter(|d| !d.download_type.is_update())
             .filter_map(|d| match &d.state {
                 DownloadState::Downloading { speed_bps, .. } => Some(*speed_bps),
                 _ => None,
@@ -63,6 +71,7 @@ impl QdmApp {
         let total_upload_speed_bps: u64 = self
             .downloads
             .iter()
+            .filter(|d| !d.download_type.is_update())
             .filter_map(|d| match &d.state {
                 DownloadState::Downloading { .. } => {
                     d.torrent_meta().map(|t| t.upload_speed_bps)
@@ -78,7 +87,10 @@ impl QdmApp {
             completed_count,
             failed_count,
             scheduled_count,
+            &self.update_status,
             Message::NavSelected,
+            || Message::OpenUpdateTab,
+            || Message::InstallUpdateClicked,
         );
 
         // --- Toolbar ---
@@ -110,7 +122,7 @@ impl QdmApp {
         // --- Main content area ---
         let main_content: Element<Message> = match self.current_filter {
             sidebar::NavFilter::Settings => {
-                settings::settings_view(&self.settings, &self.downloads)
+                settings::settings_view(&self.settings, &self.downloads, &self.update_status)
                     .map(Message::SettingsMessage)
             }
             sidebar::NavFilter::Queue => crate::views::preferences::queue_view(
@@ -121,6 +133,9 @@ impl QdmApp {
             ),
             _ => {
                 let filtered_items = self.downloads.iter().rev().filter(|d| {
+                    if d.download_type.is_update() {
+                        return false;
+                    }
                     let matches_filter = match self.current_filter {
                         sidebar::NavFilter::All => true,
                         sidebar::NavFilter::Downloading => matches!(
@@ -211,7 +226,14 @@ impl QdmApp {
         );
 
         // --- Modal overlays (highest priority on top of main content area) ---
-        let main_area: Element<Message> = if self.conflict_dialog.is_open {
+        let main_area: Element<Message> = if self.update_conflict_dialog.is_open {
+            let conflict_modal = crate::views::dialogues::update_conflict_dialogue::view(&self.update_conflict_dialog)
+                .map(Message::UpdateConflictMessages);
+            stack![root_layout, conflict_modal]
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        } else if self.conflict_dialog.is_open {
             let conflict_modal = conflict_dialogue::view(&self.conflict_dialog)
                 .map(Message::ConflictDialogueMessages);
             stack![root_layout, conflict_modal]

@@ -240,7 +240,23 @@ impl ChunkState {
 pub enum DownloadType {
     Http(HttpMetadata),
     Torrent(TorrentMetadata),
+    Update(HttpMetadata),
 }
+
+impl DownloadType {
+    pub fn is_update(&self) -> bool {
+        matches!(self, DownloadType::Update(_))
+    }
+
+    pub fn is_http(&self) -> bool {
+        matches!(self, DownloadType::Http(_))
+    }
+
+    pub fn is_torrent(&self) -> bool {
+        matches!(self, DownloadType::Torrent(_))
+    }
+}
+
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HttpMetadata {
@@ -390,14 +406,14 @@ impl DownloadItem {
 
     pub fn http_meta(&self) -> Option<&HttpMetadata> {
         match &self.download_type {
-            DownloadType::Http(meta) => Some(meta),
+            DownloadType::Http(meta) | DownloadType::Update(meta) => Some(meta),
             _ => None,
         }
     }
 
     pub fn http_meta_mut(&mut self) -> Option<&mut HttpMetadata> {
         match &mut self.download_type {
-            DownloadType::Http(meta) => Some(meta),
+            DownloadType::Http(meta) | DownloadType::Update(meta) => Some(meta),
             _ => None,
         }
     }
@@ -418,21 +434,23 @@ impl DownloadItem {
 
     pub fn get_url(&self) -> &str {
         match &self.download_type {
-            DownloadType::Http(http) => &http.primary_url.url,
+            DownloadType::Http(http) | DownloadType::Update(http) => &http.primary_url.url,
             DownloadType::Torrent(torrent) => &torrent.magnet_uri,
         }
     }
 
     pub fn active_mirrors_count(&self) -> usize {
         match &self.download_type {
-            DownloadType::Http(http) => http.mirror_urls.iter().filter(|m| m.is_active).count(),
+            DownloadType::Http(http) | DownloadType::Update(http) => {
+                http.mirror_urls.iter().filter(|m| m.is_active).count()
+            }
             DownloadType::Torrent(_) => 0,
         }
     }
 
     pub fn total_mirrors_count(&self) -> usize {
         match &self.download_type {
-            DownloadType::Http(http) => http.mirror_urls.len(),
+            DownloadType::Http(http) | DownloadType::Update(http) => http.mirror_urls.len(),
             DownloadType::Torrent(_) => 0,
         }
     }
@@ -442,7 +460,7 @@ impl DownloadItem {
             DownloadType::Torrent(torrent) => {
                 torrent.is_folder || torrent.selected_files.as_ref().map(|f| f.len() > 1).unwrap_or(false)
             }
-            DownloadType::Http(_) => false,
+            DownloadType::Http(_) | DownloadType::Update(_) => false,
         }
     }
 }

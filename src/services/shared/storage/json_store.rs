@@ -28,7 +28,12 @@ pub fn save_downloads(downloads: &[DownloadItem]) -> Result<(), String> {
         let _ = std::fs::create_dir_all(parent);
     }
 
-    let json_str = serde_json::to_string_pretty(downloads)
+    let regular_downloads: Vec<&DownloadItem> = downloads
+        .iter()
+        .filter(|d| !d.download_type.is_update())
+        .collect();
+
+    let json_str = serde_json::to_string_pretty(&regular_downloads)
         .map_err(|e| format!("Failed to serialize downloads: {}", e))?;
 
     std::fs::write(&path, json_str)
@@ -104,8 +109,10 @@ fn now_timestamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::download::{DownloadType, DownloadState, DownloadUrl, FileType, HttpMetadata};
-    
+    use crate::models::download::{
+        DownloadState, DownloadType, DownloadUrl, FileType, HttpMetadata,
+    };
+
     fn get_test_item() -> DownloadItem {
         DownloadItem {
             id: 1,

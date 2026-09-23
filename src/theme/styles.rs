@@ -174,6 +174,10 @@ pub fn window_close_button_style(_theme: &Theme, status: button::Status) -> butt
 
 // --- Progress Bar Styles ---
 
+pub fn progress_bar_style(theme: &Theme) -> progress_bar::Style {
+    progress_bar_style_with_color(colors::PRIMARY)(theme)
+}
+
 pub fn progress_bar_style_with_color(bar_color: Color) -> impl Fn(&Theme) -> progress_bar::Style {
     move |_theme: &Theme| progress_bar::Style {
         background: Background::Color(colors::SURFACE_HIGH),

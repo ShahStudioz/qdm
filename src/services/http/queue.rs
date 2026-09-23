@@ -20,9 +20,12 @@ impl QueueService {
         let max_simultaneous = max_simultaneous.max(1);
         let mut action = QueueSyncAction::default();
 
-        // 1. Count active downloading items
+        // 1. Count active downloading items (excluding internal app updates)
         let mut active_indices: Vec<usize> = Vec::new();
         for (idx, item) in downloads.iter().enumerate() {
+            if item.download_type.is_update() {
+                continue;
+            }
             if matches!(item.state, DownloadState::Downloading { .. }) {
                 active_indices.push(idx);
             }
@@ -54,9 +57,10 @@ impl QueueService {
             }
         }
 
-        // Recount active after preemption
+        // Recount active after preemption (excluding internal app updates)
         let current_active_count = downloads
             .iter()
+            .filter(|d| !d.download_type.is_update())
             .filter(|d| matches!(d.state, DownloadState::Downloading { .. }))
             .count();
 
@@ -65,6 +69,9 @@ impl QueueService {
             let mut available_slots = max_simultaneous - current_active_count;
 
             for item in downloads.iter_mut() {
+                if item.download_type.is_update() {
+                    continue;
+                }
                 if available_slots == 0 {
                     break;
                 }

@@ -26,4 +26,5 @@ pub mod services {
 
 pub mod core {
     pub mod utils;
+    pub mod version;
 }

@@ -68,7 +68,7 @@ impl AppEngine {
 
     pub async fn start_or_resume(&self, item: DownloadItem, play_media: bool) {
         match item.download_type {
-            DownloadType::Http(_) => self.http.start_or_resume(item).await,
+            DownloadType::Http(_) | DownloadType::Update(_) => self.http.start_or_resume(item).await,
             DownloadType::Torrent(_) => {
                 if let Some(engine) = self.torrent.read().await.as_ref() {
                     let _ = engine.start_or_resume(&item, play_media).await;

@@ -82,6 +82,21 @@ fn handle_progress_updated(
         }
         if let Some(http) = item.http_meta_mut() { http.chunks = chunks; }
 
+        if item.download_type.is_update() {
+            if let crate::services::updater::UpdateStatus::Downloading { ref info, download_id, .. } = app.update_status {
+                if download_id == id {
+                    app.update_status = crate::services::updater::UpdateStatus::Downloading {
+                        info: info.clone(),
+                        download_id,
+                        downloaded_bytes,
+                        total_bytes,
+                        speed_bps,
+                        eta_secs,
+                    };
+                }
+            }
+        }
+
         // If stream is actively transferring bytes, reset per-failure auto-retry counter
         if speed_bps > 0 && app.retry_counts.contains_key(&id) {
             app.retry_counts.remove(&id);
@@ -208,6 +223,37 @@ fn handle_download_completed(
             id, sha256
         );
 
+        if item.download_type.is_update() {
+            if let crate::services::updater::UpdateStatus::Downloading { ref info, .. } = app.update_status {
+                let updates_dir = crate::core::utils::paths::get_updates_dir();
+                let target_file = updates_dir.join(&info.file_name);
+                let size = std::fs::metadata(&target_file).map(|m| m.len()).unwrap_or(0);
+
+                let is_valid = if let Some(ref expected_sha) = info.checksum_sha256 {
+                    crate::services::updater::verify_file_sha256(&target_file, expected_sha)
+                } else {
+                    true
+                };
+
+                if is_valid {
+                    let _ = crate::services::updater::save_cached_update(info, &target_file);
+                    app.update_status = crate::services::updater::UpdateStatus::ReadyToInstall {
+                        info: info.clone(),
+                        file_path: target_file,
+                        file_size: size,
+                    };
+                } else {
+                    let _ = std::fs::remove_file(&target_file);
+                    app.update_status = crate::services::updater::UpdateStatus::Error {
+                        message: "Downloaded update failed checksum verification.".to_string(),
+                    };
+                }
+            }
+            app.downloads.retain(|d| d.id != id);
+            return Task::none();
+        }
+
+
         // Move torrent out of staging folder if it was used
         if let crate::models::download::DownloadType::Torrent(_) = item.download_type {
             let mut staging_dir = std::path::PathBuf::from(&item.save_path);
@@ -311,7 +357,16 @@ fn handle_download_failed(app: &mut QdmApp, id: usize, error: String) -> Task<Me
     if let Some(item) = app.downloads.iter_mut().find(|d| d.id == id) {
         println!("[QDM UI] Item {} failed: {}", id, error);
 
+        if item.download_type.is_update() {
+            app.update_status = crate::services::updater::UpdateStatus::Error {
+                message: format!("Download failed: {}", error),
+            };
+            app.downloads.retain(|d| d.id != id);
+            return Task::none();
+        }
+
         // Check auto-retry budget
+
         if app.settings.auto_retry_downloads {
             let count = app.retry_counts.entry(id).or_insert(0);
             if *count < app.settings.max_auto_retries {

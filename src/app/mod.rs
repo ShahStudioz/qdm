@@ -78,6 +78,20 @@ pub enum Message {
     DetailDialogueMessages(detail_dialogue::DetailDialogueMessage),
     ConflictDialogueMessages(conflict_dialogue::ConflictDialogMessage),
     DeleteDialogueMessages(delete_dialogue::DeleteDialogMessage),
+    UpdateConflictMessages(crate::views::dialogues::update_conflict_dialogue::UpdateConflictDialogMessage),
+
+    // --- Update Management ---
+    #[allow(dead_code)]
+    CheckForUpdates,
+    UpdateCheckResult(Result<Option<crate::services::updater::UpdateInfo>, String>),
+    #[allow(dead_code)]
+    StartUpdateDownload,
+    #[allow(dead_code)]
+    CancelUpdateDownload,
+    InstallUpdateClicked,
+    #[allow(dead_code)]
+    ConfirmInstallUpdateAnyway,
+    OpenUpdateTab,
 
     // --- Window Management ---
     WindowIdRetrieved(Option<iced::window::Id>),
@@ -122,6 +136,10 @@ pub struct QdmApp {
     pub(crate) detail_dialog: detail_dialogue::DetailDialogModel,
     pub(crate) conflict_dialog: conflict_dialogue::ConflictDialogModel,
     pub(crate) delete_dialog: delete_dialogue::DeleteDialogModel,
+    pub(crate) update_conflict_dialog: crate::views::dialogues::update_conflict_dialogue::UpdateConflictDialogModel,
+
+    // --- Auto-Update Subsystem ---
+    pub(crate) update_status: crate::services::updater::UpdateStatus,
 
     // --- Engine ---
     pub(crate) engine: crate::services::engine::AppEngine,
@@ -131,6 +149,7 @@ pub struct QdmApp {
     pub(crate) copied_link_ids: std::collections::HashSet<usize>,
     pub(crate) last_item_click: Option<(usize, std::time::Instant)>,
 }
+
 
 impl Default for QdmApp {
     fn default() -> Self {
@@ -150,6 +169,8 @@ impl Default for QdmApp {
             detail_dialog: detail_dialogue::DetailDialogModel::default(),
             conflict_dialog: conflict_dialogue::ConflictDialogModel::default(),
             delete_dialog: delete_dialogue::DeleteDialogModel::default(),
+            update_conflict_dialog: crate::views::dialogues::update_conflict_dialogue::UpdateConflictDialogModel::default(),
+            update_status: crate::services::updater::UpdateStatus::default(),
             engine: crate::services::engine::AppEngine::new(crate::services::http::DownloadEngine::new()),
             copied_link_ids: std::collections::HashSet::new(),
             last_item_click: None,
@@ -169,9 +190,21 @@ impl QdmApp {
             None
         };
 
+        // Check if an already downloaded and verified update exists in ~/.qdm/updates/
+        let mut initial_update_status = crate::services::updater::UpdateStatus::default();
+        if let Some((info, file_path)) = crate::services::updater::load_cached_update() {
+            let size = std::fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0);
+            initial_update_status = crate::services::updater::UpdateStatus::ReadyToInstall {
+                info,
+                file_path,
+                file_size: size,
+            };
+        }
+
         let app = Self {
             settings: initial_settings.clone(),
             tray,
+            update_status: initial_update_status.clone(),
             ..Default::default()
         };
 
@@ -191,8 +224,21 @@ impl QdmApp {
 
         let window_task = iced::window::get_latest().map(Message::WindowIdRetrieved);
 
-        (app, Task::batch([downloads_task, torrent_task, window_task]))
+        let update_check_task = if initial_settings.auto_check_updates && !initial_update_status.is_ready_to_install() {
+            let api_url = initial_settings.update_api_url.clone();
+            Task::perform(
+                async move {
+                    crate::services::updater::check_for_updates(&api_url, crate::core::version::APP_VERSION).await
+                },
+                Message::UpdateCheckResult,
+            )
+        } else {
+            Task::none()
+        };
+
+        (app, Task::batch([downloads_task, torrent_task, window_task, update_check_task]))
     }
+
 
     // -----------------------------------------------------------------------
     // Queue Synchronization
@@ -383,6 +429,31 @@ impl QdmApp {
             Message::DeleteDialogueMessages(msg) => {
                 handlers::dialogs::handle_delete_dialog_message(self, msg)
             }
+            Message::UpdateConflictMessages(msg) => {
+                handlers::dialogs::handle_update_conflict_message(self, msg)
+            }
+
+            // --- Update Actions ---
+            Message::CheckForUpdates => handlers::navigation::handle_check_for_updates(self),
+            Message::UpdateCheckResult(res) => {
+                handlers::navigation::handle_update_check_result(self, res)
+            }
+            Message::StartUpdateDownload => {
+                handlers::navigation::handle_start_update_download(self)
+            }
+            Message::CancelUpdateDownload => {
+                handlers::navigation::handle_cancel_update_download(self)
+            }
+            Message::InstallUpdateClicked => {
+                handlers::navigation::handle_install_update_clicked(self)
+            }
+            Message::ConfirmInstallUpdateAnyway => {
+                handlers::navigation::execute_install_update(self)
+            }
+            Message::OpenUpdateTab => {
+                handlers::navigation::handle_open_update_tab(self)
+            }
+
 
             // --- Window Management ---
             Message::WindowIdRetrieved(id_opt) => {

@@ -813,3 +813,36 @@ pub(crate) fn handle_detail_dialog_message(
         }
     }
 }
+
+/// Handles messages from the update conflict dialogue (non-resumable active downloads).
+pub(crate) fn handle_update_conflict_message(
+    app: &mut QdmApp,
+    msg: crate::views::dialogues::update_conflict_dialogue::UpdateConflictDialogMessage,
+) -> Task<Message> {
+    match msg {
+        crate::views::dialogues::update_conflict_dialogue::UpdateConflictDialogMessage::Close => {
+            app.update_conflict_dialog.close();
+            Task::none()
+        }
+        crate::views::dialogues::update_conflict_dialogue::UpdateConflictDialogMessage::ProceedWithInstall => {
+            app.update_conflict_dialog.close();
+            // Cancel non-resumable active downloads
+            let to_cancel: Vec<usize> = app.downloads
+                .iter()
+                .filter(|d| !d.download_type.is_update())
+                .filter(|d| matches!(d.state, crate::models::download::DownloadState::Downloading { .. }))
+                .filter(|d| d.http_meta().map(|h| !h.resumable).unwrap_or(false))
+                .map(|d| d.id)
+                .collect();
+
+            for id in to_cancel {
+                let engine = app.engine.clone();
+                tokio::spawn(async move {
+                    engine.cancel(id).await;
+                });
+            }
+            crate::app::handlers::navigation::execute_install_update(app)
+        }
+    }
+}
+

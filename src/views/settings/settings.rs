@@ -50,6 +50,10 @@ fn default_listen_port() -> String {
     "6881".to_string()
 }
 
+fn default_update_api_url() -> String {
+    "https://qdm_web.test/api/v1/version-check".to_string()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum SpeedUnit {
     #[default]
@@ -188,6 +192,8 @@ pub struct SettingsModel {
     pub schedule_subtab: ScheduleSubTab,
 
     // Updates Tab
+    #[serde(default = "default_update_api_url")]
+    pub update_api_url: String,
     #[serde(default = "default_true")]
     pub auto_check_updates: bool,
     #[serde(skip)]
@@ -234,6 +240,7 @@ impl Default for SettingsModel {
             schedule: ScheduleConfig::default(),
             schedule_subtab: ScheduleSubTab::Settings,
 
+            update_api_url: default_update_api_url(),
             auto_check_updates: true,
             auto_check_updates_anim: 1.0,
         }
@@ -261,10 +268,19 @@ impl SettingsModel {
         self.auto_retry_downloads_anim = if self.auto_retry_downloads { 1.0 } else { 0.0 };
         self.torrent_enable_dht_anim = if self.torrent_enable_dht { 1.0 } else { 0.0 };
         self.torrent_enable_upnp_anim = if self.torrent_enable_upnp { 1.0 } else { 0.0 };
-        self.torrent_play_media_while_downloading_anim = if self.torrent_play_media_while_downloading { 1.0 } else { 0.0 };
+        self.torrent_play_media_while_downloading_anim =
+            if self.torrent_play_media_while_downloading {
+                1.0
+            } else {
+                0.0
+            };
         self.schedule.enabled_anim = if self.schedule.enabled { 1.0 } else { 0.0 };
         self.schedule.stop_enabled_anim = if self.schedule.stop_enabled { 1.0 } else { 0.0 };
-        self.schedule.prioritize_scheduled_anim = if self.schedule.prioritize_scheduled { 1.0 } else { 0.0 };
+        self.schedule.prioritize_scheduled_anim = if self.schedule.prioritize_scheduled {
+            1.0
+        } else {
+            0.0
+        };
         self.auto_check_updates_anim = if self.auto_check_updates { 1.0 } else { 0.0 };
     }
 
@@ -275,10 +291,18 @@ impl SettingsModel {
         let target_retry = if self.auto_retry_downloads { 1.0 } else { 0.0 };
         let target_torrent_dht = if self.torrent_enable_dht { 1.0 } else { 0.0 };
         let target_torrent_upnp = if self.torrent_enable_upnp { 1.0 } else { 0.0 };
-        let target_torrent_media = if self.torrent_play_media_while_downloading { 1.0 } else { 0.0 };
+        let target_torrent_media = if self.torrent_play_media_while_downloading {
+            1.0
+        } else {
+            0.0
+        };
         let target_sched = if self.schedule.enabled { 1.0 } else { 0.0 };
         let target_sched_stop = if self.schedule.stop_enabled { 1.0 } else { 0.0 };
-        let target_sched_priority = if self.schedule.prioritize_scheduled { 1.0 } else { 0.0 };
+        let target_sched_priority = if self.schedule.prioritize_scheduled {
+            1.0
+        } else {
+            0.0
+        };
         let target_updates = if self.auto_check_updates { 1.0 } else { 0.0 };
 
         (self.launch_at_startup_anim - target_startup).abs() > 0.005
@@ -301,10 +325,18 @@ impl SettingsModel {
         let target_retry = if self.auto_retry_downloads { 1.0 } else { 0.0 };
         let target_torrent_dht = if self.torrent_enable_dht { 1.0 } else { 0.0 };
         let target_torrent_upnp = if self.torrent_enable_upnp { 1.0 } else { 0.0 };
-        let target_torrent_media = if self.torrent_play_media_while_downloading { 1.0 } else { 0.0 };
+        let target_torrent_media = if self.torrent_play_media_while_downloading {
+            1.0
+        } else {
+            0.0
+        };
         let target_sched = if self.schedule.enabled { 1.0 } else { 0.0 };
         let target_sched_stop = if self.schedule.stop_enabled { 1.0 } else { 0.0 };
-        let target_sched_priority = if self.schedule.prioritize_scheduled { 1.0 } else { 0.0 };
+        let target_sched_priority = if self.schedule.prioritize_scheduled {
+            1.0
+        } else {
+            0.0
+        };
         let target_updates = if self.auto_check_updates { 1.0 } else { 0.0 };
 
         self.launch_at_startup_anim += (target_startup - self.launch_at_startup_anim) * 0.35;
@@ -312,11 +344,15 @@ impl SettingsModel {
         self.show_notifications_anim += (target_notify - self.show_notifications_anim) * 0.35;
         self.auto_retry_downloads_anim += (target_retry - self.auto_retry_downloads_anim) * 0.35;
         self.torrent_enable_dht_anim += (target_torrent_dht - self.torrent_enable_dht_anim) * 0.35;
-        self.torrent_enable_upnp_anim += (target_torrent_upnp - self.torrent_enable_upnp_anim) * 0.35;
-        self.torrent_play_media_while_downloading_anim += (target_torrent_media - self.torrent_play_media_while_downloading_anim) * 0.35;
+        self.torrent_enable_upnp_anim +=
+            (target_torrent_upnp - self.torrent_enable_upnp_anim) * 0.35;
+        self.torrent_play_media_while_downloading_anim +=
+            (target_torrent_media - self.torrent_play_media_while_downloading_anim) * 0.35;
         self.schedule.enabled_anim += (target_sched - self.schedule.enabled_anim) * 0.35;
-        self.schedule.stop_enabled_anim += (target_sched_stop - self.schedule.stop_enabled_anim) * 0.35;
-        self.schedule.prioritize_scheduled_anim += (target_sched_priority - self.schedule.prioritize_scheduled_anim) * 0.35;
+        self.schedule.stop_enabled_anim +=
+            (target_sched_stop - self.schedule.stop_enabled_anim) * 0.35;
+        self.schedule.prioritize_scheduled_anim +=
+            (target_sched_priority - self.schedule.prioritize_scheduled_anim) * 0.35;
         self.auto_check_updates_anim += (target_updates - self.auto_check_updates_anim) * 0.35;
 
         if (self.launch_at_startup_anim - target_startup).abs() < 0.005 {
@@ -409,6 +445,9 @@ pub enum SettingsMessage {
     // Updates Tab
     ToggleUpdates(bool),
     CheckUpdatesPressed,
+    StartUpdateDownload,
+    CancelUpdateDownload,
+    InstallUpdatePressed,
 
     // Global
     ResetDefaultsPressed,
@@ -498,7 +537,9 @@ pub fn update(model: &mut SettingsModel, message: SettingsMessage) {
         // Torrents Tab Handlers
         SettingsMessage::ToggleTorrentDht(val) => model.torrent_enable_dht = val,
         SettingsMessage::ToggleTorrentUpnp(val) => model.torrent_enable_upnp = val,
-        SettingsMessage::ToggleTorrentPlayMedia(val) => model.torrent_play_media_while_downloading = val,
+        SettingsMessage::ToggleTorrentPlayMedia(val) => {
+            model.torrent_play_media_while_downloading = val
+        }
         SettingsMessage::TorrentMaxPeersDec => {
             if model.torrent_max_peers > 5 {
                 model.torrent_max_peers -= 5;
@@ -513,29 +554,43 @@ pub fn update(model: &mut SettingsModel, message: SettingsMessage) {
             model.torrent_listen_port = val.chars().filter(|c| c.is_ascii_digit()).collect();
         }
         SettingsMessage::TorrentSeedRatioLimitChanged(val) => {
-            model.torrent_seed_ratio_limit = val.chars().filter(|c| c.is_ascii_digit() || *c == '.').collect();
+            model.torrent_seed_ratio_limit = val
+                .chars()
+                .filter(|c| c.is_ascii_digit() || *c == '.')
+                .collect();
         }
         SettingsMessage::TorrentUploadLimitValueChanged(val) => {
             model.torrent_upload_limit_value = val.chars().filter(|c| c.is_ascii_digit()).collect();
         }
-        SettingsMessage::TorrentUploadLimitUnitChanged(unit) => model.torrent_upload_limit_unit = unit,
+        SettingsMessage::TorrentUploadLimitUnitChanged(unit) => {
+            model.torrent_upload_limit_unit = unit
+        }
 
         // Scheduler Tab Handlers
         SettingsMessage::ScheduleSubTabSelected(subtab) => model.schedule_subtab = subtab,
         SettingsMessage::ToggleScheduleEnabled(val) => model.schedule.enabled = val,
         SettingsMessage::ToggleScheduleStopEnabled(val) => model.schedule.stop_enabled = val,
-        SettingsMessage::TogglePrioritizeScheduled(val) => model.schedule.prioritize_scheduled = val,
+        SettingsMessage::TogglePrioritizeScheduled(val) => {
+            model.schedule.prioritize_scheduled = val
+        }
         SettingsMessage::ScheduleStartTimeChanged(val) => model.schedule.start_time = val,
         SettingsMessage::ScheduleStopTimeChanged(val) => model.schedule.stop_time = val,
         SettingsMessage::ScheduleToggleDay(idx) => model.schedule.toggle_day(idx),
-        SettingsMessage::ScheduleOnCompleteChanged(action) => model.schedule.on_complete_action = action,
-        SettingsMessage::MoveScheduledItemUp(_) | SettingsMessage::MoveScheduledItemDown(_) | SettingsMessage::RemoveFromSchedule(_) => {
+        SettingsMessage::ScheduleOnCompleteChanged(action) => {
+            model.schedule.on_complete_action = action
+        }
+        SettingsMessage::MoveScheduledItemUp(_)
+        | SettingsMessage::MoveScheduledItemDown(_)
+        | SettingsMessage::RemoveFromSchedule(_) => {
             // These list modification actions are handled at App level
         }
 
         SettingsMessage::ToggleUpdates(val) => model.auto_check_updates = val,
-        SettingsMessage::CheckUpdatesPressed => {
-            println!("[QDM] Checking for updates...");
+        SettingsMessage::CheckUpdatesPressed
+        | SettingsMessage::StartUpdateDownload
+        | SettingsMessage::CancelUpdateDownload
+        | SettingsMessage::InstallUpdatePressed => {
+            // Handled at App level
         }
         SettingsMessage::ResetDefaultsPressed => {
             *model = SettingsModel::default();
@@ -550,6 +605,7 @@ pub fn update(model: &mut SettingsModel, message: SettingsMessage) {
 pub fn settings_view<'a>(
     model: &'a SettingsModel,
     downloads: &'a [crate::models::download::DownloadItem],
+    update_status: &'a crate::services::updater::UpdateStatus,
 ) -> Element<'a, SettingsMessage> {
     let tabs_row = row![
         tab_item("General", SettingsTab::General, model.active_tab),
@@ -576,7 +632,7 @@ pub fn settings_view<'a>(
         SettingsTab::Downloads => tabs::downloads::view(model),
         SettingsTab::Torrents => tabs::torrents::view(model),
         SettingsTab::Scheduler => tabs::scheduler::view(model, downloads),
-        SettingsTab::Updates => tabs::updates::view(model),
+        SettingsTab::Updates => tabs::updates::view(model, update_status),
     };
 
     let footer_divider = container(Space::with_height(1))
@@ -790,8 +846,12 @@ pub fn setting_row<'a>(
 
     let control_box = container(control).align_x(Alignment::End);
 
-    row![left_col.width(Length::Fill), Space::with_width(20), control_box]
-        .align_y(Alignment::Center)
-        .width(Length::Fill)
-        .into()
+    row![
+        left_col.width(Length::Fill),
+        Space::with_width(20),
+        control_box
+    ]
+    .align_y(Alignment::Center)
+    .width(Length::Fill)
+    .into()
 }

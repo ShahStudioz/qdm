@@ -81,7 +81,7 @@ impl DownloadEngine {
             .pool_idle_timeout(Duration::from_secs(90))
             .tcp_keepalive(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(15))
-            .user_agent("QDM/0.1.0 (Quick Download Manager; Windows NT 10.0; Win64; x64)")
+            .user_agent(crate::core::version::APP_USER_AGENT)
             .build()
             .unwrap_or_else(|_| Client::new());
 
