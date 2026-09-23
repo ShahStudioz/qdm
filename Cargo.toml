@@ -46,9 +46,10 @@ description = "Quick Download Manager - Modern Open-Source Downloader in Rust & 
 long-description = "Quick Download Manager (QDM) is a fast, lightweight, and modern open-source download manager built with Rust and Iced. It supports segmented multi-connection HTTP/HTTPS downloads, BitTorrent/magnet links, speed throttling, scheduling, and automatic updates."
 icons = ["assets/images/logo.png"]
 resources = ["assets"]
+out-dir = "dist"
 
 [[package.metadata.packager.binaries]]
-name = "qdm"
+path = "qdm"
 main = true
 
 [package.metadata.packager.nsis]
