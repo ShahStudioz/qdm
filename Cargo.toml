@@ -37,11 +37,14 @@ raw-window-handle = "0.6"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52", features = ["Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_Foundation"] }
 
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
 [package.metadata.packager]
 product-name = "QDM"
-identifier = "org.qdm.app"
+identifier = "shahstudioz.qdm.app"
 category = "Utilities"
-authors = ["Shah Misbah Ullah"]
+authors = ["ShahStudioz"]
 description = "Quick Download Manager - Modern Open-Source Downloader in Rust & Iced"
 long-description = "Quick Download Manager (QDM) is a fast, lightweight, and modern open-source download manager built with Rust and Iced. It supports segmented multi-connection HTTP/HTTPS downloads, BitTorrent/magnet links, speed throttling, scheduling, and automatic updates."
 icons = [
@@ -62,6 +65,7 @@ path = "qdm"
 main = true
 
 [package.metadata.packager.nsis]
+installer-icon = "assets/icons/icon.ico"
 installer-mode = "currentUser"
 languages = ["English"]
 
