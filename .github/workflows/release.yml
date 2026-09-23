@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name for release (e.g. v1.0.0). Leave empty to use version from Cargo.toml'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -148,10 +153,26 @@ jobs:
           find . -maxdepth 1 -type f ! -name "*.sha256" -exec sha256sum {} + > SHA256SUMS.txt || true
           cat SHA256SUMS.txt
 
+      - name: Determine Release Tag
+        id: release_tag
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${{ github.ref_name }}"
+          else
+            CARGO_VER=$(grep '^version =' Cargo.toml | head -n1 | cut -d '"' -f2)
+            TAG="v${CARGO_VER}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Target release tag: ${TAG}"
+
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         with:
+          tag_name: ${{ steps.release_tag.outputs.tag }}
           files: release-artifacts/*
           generate_release_notes: true
           draft: false
