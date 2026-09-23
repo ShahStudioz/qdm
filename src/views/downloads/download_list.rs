@@ -1,15 +1,19 @@
-use iced::widget::{column, container, scrollable, text, Space};
-use iced::{Alignment, Element, Length};
 use crate::models::download::DownloadItem;
 use crate::theme::{colors, styles};
 use crate::views::downloads::download_item::download_item_view;
+use iced::widget::{column, container, scrollable, text, Space};
+use iced::{Alignment, Element, Length};
 
 pub fn download_list_view<'a, Message>(
     items: impl IntoIterator<Item = &'a DownloadItem>,
+    copied_ids: &'a std::collections::HashSet<usize>,
     on_toggle_pause: impl Fn(usize) -> Message + 'a + Clone,
     on_cancel: impl Fn(usize) -> Message + 'a + Clone,
     on_open_folder: impl Fn(usize) -> Message + 'a + Clone,
     on_open_mirrors: impl Fn(usize) -> Message + 'a + Clone,
+    on_open_details: impl Fn(usize) -> Message + 'a + Clone,
+    on_copy_link: impl Fn(usize) -> Message + 'a + Clone,
+    on_item_click: impl Fn(usize) -> Message + 'a + Clone,
 ) -> Element<'a, Message>
 where
     Message: 'a + Clone + 'static,
@@ -21,10 +25,14 @@ where
         count += 1;
         list_col = list_col.push(download_item_view(
             item,
+            copied_ids.contains(&item.id),
             on_toggle_pause.clone(),
             on_cancel.clone(),
             on_open_folder.clone(),
             on_open_mirrors.clone(),
+            on_open_details.clone(),
+            on_copy_link.clone(),
+            on_item_click.clone(),
         ));
     }
 
@@ -50,13 +58,10 @@ where
         return empty_msg.into();
     }
 
-    let scroll = scrollable(
-        container(list_col)
-            .width(Length::Fill)
-            .padding([20, 24])
-    )
-    .width(Length::Fill)
-    .height(Length::Fill);
+    let scroll = scrollable(container(list_col).width(Length::Fill).padding([20, 24]))
+        .style(styles::scrollable_style)
+        .width(Length::Fill)
+        .height(Length::Fill);
 
     scroll.into()
 }

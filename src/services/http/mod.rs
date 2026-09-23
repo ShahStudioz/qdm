@@ -1,10 +1,12 @@
 #![allow(unused_imports)]
-
+pub mod diagnostics;
 pub mod download;
 pub mod engine;
 pub mod integrity;
 pub mod metadata;
+pub mod queue;
 pub mod task;
+pub mod throttler;
 pub mod worker;
 pub mod writer;
 
@@ -12,4 +14,6 @@ pub mod writer;
 pub use engine::{DownloadEngine, EngineUiEvent};
 pub use integrity::{compute_sha256, verify_sha256, verify_structure, verify_zip_eocd};
 pub use metadata::{FileMetadata, MetadataService};
+pub use queue::{QueueService, QueueSyncAction};
+pub use throttler::Throttler;
 pub use writer::PositionalWriter;

@@ -17,8 +17,8 @@ use reqwest::Client;
 use tokio::sync::{broadcast, mpsc, watch, Mutex};
 
 use crate::models::download::{ChunkState, DownloadItem, DownloadState};
-use crate::services::downloads::metadata::{FileMetadata, MetadataService};
-use crate::services::downloads::task::{DownloadTaskController, TaskEvent};
+use crate::services::http::metadata::{FileMetadata, MetadataService};
+use crate::services::http::task::{DownloadTaskController, TaskEvent};
 
 /// High-level events emitted by the Download Engine for UI presentation.
 #[derive(Debug, Clone)]
@@ -30,6 +30,16 @@ pub enum EngineUiEvent {
         speed_bps: u64,
         eta_secs: Option<u64>,
         chunks: Vec<ChunkState>,
+    },
+    TorrentProgressUpdated {
+        id: usize,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
+        speed_bps: u64,
+        upload_speed_bps: u64,
+        peers: u32,
+        seeds: u32,
+        eta_secs: Option<u64>,
     },
     StateChanged {
         id: usize,
@@ -71,7 +81,7 @@ impl DownloadEngine {
             .pool_idle_timeout(Duration::from_secs(90))
             .tcp_keepalive(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(15))
-            .user_agent("QDM/0.1.0 (Quick Download Manager; Windows NT 10.0; Win64; x64)")
+            .user_agent(crate::core::version::APP_USER_AGENT)
             .build()
             .unwrap_or_else(|_| Client::new());
 
@@ -100,12 +110,12 @@ impl DownloadEngine {
     pub async fn start_or_resume(&self, item: DownloadItem) {
         let item_id = item.id;
 
-        // Cancel any existing controller for this item before starting
-        self.pause(item_id).await;
-
         let (pause_tx, pause_rx) = watch::channel(false);
         {
             let mut tasks = self.active_tasks.lock().await;
+            if let Some(prev_pause_tx) = tasks.remove(&item_id) {
+                let _ = prev_pause_tx.send(true);
+            }
             tasks.insert(item_id, pause_tx);
         }
 
@@ -170,6 +180,24 @@ impl DownloadEngine {
                         let _ = ui_event_tx.send(EngineUiEvent::DownloadCompleted { id, sha256 });
                         break;
                     }
+                    TaskEvent::WaitingForNetwork {
+                        id,
+                        downloaded_bytes,
+                        total_bytes,
+                    } => {
+                        {
+                            let mut tasks = active_tasks.lock().await;
+                            tasks.remove(&id);
+                        }
+                        let _ = ui_event_tx.send(EngineUiEvent::StateChanged {
+                            id,
+                            state: DownloadState::WaitingForNetwork {
+                                downloaded_bytes,
+                                total_bytes,
+                            },
+                        });
+                        break;
+                    }
                     TaskEvent::Failed {
                         id,
                         error,
@@ -204,13 +232,14 @@ impl DownloadEngine {
         if let Some(pause_tx) = tasks.remove(&id) {
             let _ = pause_tx.send(true);
         }
-        let _ = self.ui_event_tx.send(EngineUiEvent::StateChanged {
-            id,
-            state: DownloadState::Paused {
-                downloaded_bytes: 0,
-                total_bytes: None,
-            },
-        });
+    }
+
+    /// Pauses an active HTTP task specifically due to network loss.
+    pub async fn pause_for_network(&self, id: usize) {
+        let mut tasks = self.active_tasks.lock().await;
+        if let Some(pause_tx) = tasks.remove(&id) {
+            let _ = pause_tx.send(true);
+        }
     }
 
     /// Cancels a download task and removes it from active registry.

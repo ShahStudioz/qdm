@@ -1,11 +1,24 @@
 [package]
 name = "qdm"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 description = "Quick Download Manager - Modern Open-Source Downloader in Rust & Iced"
 
+# Expose internals as a library so the speed_debug binary can import them.
+[lib]
+name = "qdm"
+path = "src/lib.rs"
+
+[[bin]]
+name = "qdm"
+path = "src/main.rs"
+
+[[bin]]
+name = "speed_debug"
+path = "src/bin/speed_debug.rs"
+
 [dependencies]
-iced = { version = "0.13", features = ["tokio"] }
+iced = { version = "0.13", features = ["tokio", "image"] }
 tokio = { version = "1", features = ["full"] }
 futures-util = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 reqwest = { version = "0.13.4", features = ["stream", "json"] }
@@ -14,3 +27,37 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 thiserror = "2.0"
+rfd = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+librqbit = "9.0.1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+tray-icon = "0.24"
+raw-window-handle = "0.6"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_Foundation"] }
+
+[package.metadata.packager]
+product-name = "QDM"
+identifier = "org.qdm.app"
+category = "Network"
+authors = ["Shah Misbah Ullah"]
+description = "Quick Download Manager - Modern Open-Source Downloader in Rust & Iced"
+long-description = "Quick Download Manager (QDM) is a fast, lightweight, and modern open-source download manager built with Rust and Iced. It supports segmented multi-connection HTTP/HTTPS downloads, BitTorrent/magnet links, speed throttling, scheduling, and automatic updates."
+icons = ["assets/images/logo.png"]
+resources = ["assets"]
+
+[[package.metadata.packager.binaries]]
+name = "qdm"
+main = true
+
+[package.metadata.packager.nsis]
+installer-mode = "currentUser"
+languages = ["English"]
+
+[package.metadata.packager.deb]
+depends = ["libc6", "libssl3 | libssl1.1", "libgtk-3-0"]
+
+[package.metadata.packager.appimage]
+
+[package.metadata.packager.dmg]
