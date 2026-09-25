@@ -120,6 +120,12 @@ jobs:
           cd dist
           for f in *; do
             if [ -f "$f" ] && [[ "$f" != *.sha256 ]]; then
+              if [[ "$f" == *.dmg ]] && [[ "$f" != *x64* ]] && [[ "$f" != *x86_64* ]] && [[ "$f" != *aarch64* ]] && [[ "$f" != *arm64* ]]; then
+                BASE="${f%.dmg}"
+                NEW_NAME="${BASE}-${{ matrix.name }}.dmg"
+                mv "$f" "$NEW_NAME"
+                f="$NEW_NAME"
+              fi
               sha256sum "$f" > "$f.sha256"
             fi
           done
@@ -138,6 +144,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
 
       - name: Download all built packages
         uses: actions/download-artifact@v4
@@ -177,3 +185,89 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+
+      - name: Sync Release & Binaries to QDM Website
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        env:
+          QDM_WEBSITE_URL: ${{ secrets.QDM_WEBSITE_URL }}
+          QDM_RELEASE_API_KEY: ${{ secrets.QDM_RELEASE_API_KEY }}
+          RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
+          GITHUB_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          if [ -z "$QDM_WEBSITE_URL" ] || [ -z "$QDM_RELEASE_API_KEY" ]; then
+            echo "::warning::Skipping QDM Website sync: QDM_WEBSITE_URL or QDM_RELEASE_API_KEY secret is not configured."
+            exit 0
+          fi
+
+          python3 - << 'EOF'
+          import os, glob, json, urllib.request, urllib.error, subprocess
+
+          website_url = os.environ["QDM_WEBSITE_URL"].rstrip("/")
+          api_key = os.environ["QDM_RELEASE_API_KEY"].strip()
+          tag = os.environ["RELEASE_TAG"].strip()
+          repo = os.environ["GITHUB_REPO"].strip()
+
+          try:
+              changelog = subprocess.check_output(
+                  ["git", "log", "-n", "15", "--pretty=format:- %s (%h)"],
+                  text=True
+              ).strip()
+          except Exception:
+              changelog = f"Automated production release {tag}."
+
+          assets = []
+          for filepath in sorted(glob.glob("release-artifacts/*")):
+              filename = os.path.basename(filepath)
+              if filename.endswith(".sha256") or filename == "SHA256SUMS.txt" or not os.path.isfile(filepath):
+                  continue
+
+              size_bytes = os.path.getsize(filepath)
+              sha256_hash = None
+              sha_file = filepath + ".sha256"
+              if os.path.isfile(sha_file):
+                  with open(sha_file, "r", encoding="utf-8") as sf:
+                      sha256_hash = sf.read().strip().split()[0]
+
+              download_url = f"https://github.com/{repo}/releases/download/{tag}/{filename}"
+              assets.append({
+                  "filename": filename,
+                  "download_url": download_url,
+                  "file_size_bytes": size_bytes,
+                  "checksum_sha256": sha256_hash,
+              })
+
+          payload = {
+              "version": tag,
+              "title": f"QDM {tag}",
+              "changelog": f"### Highlights in {tag}\n\n{changelog}",
+              "is_published": True,
+              "is_prerelease": any(x in tag.lower() for x in ["-alpha", "-beta", "-rc"]),
+              "assets": assets,
+          }
+
+          endpoint = f"{website_url}/api/v1/releases/webhook"
+          print(f"Syncing release {tag} ({len(assets)} assets) to {endpoint}...")
+
+          req = urllib.request.Request(
+              endpoint,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Content-Type": "application/json",
+                  "Accept": "application/json",
+                  "Authorization": f"Bearer {api_key}",
+                  "X-Release-Key": api_key,
+                  "User-Agent": "QDM-GitHub-Actions-Release-Bot/1.0",
+              },
+              method="POST",
+          )
+
+          try:
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  body = resp.read().decode("utf-8")
+                  print(f"Website response ({resp.status}): {body}")
+          except urllib.error.HTTPError as e:
+              err_body = e.read().decode("utf-8", errors="replace")
+              print(f"::error::Website webhook failed with HTTP {e.code}: {err_body}")
+              raise SystemExit(1)
+          EOF
