@@ -34,11 +34,9 @@ pub fn get_update_cache_path() -> PathBuf {
     get_qdm_dir().join("update_cache.json")
 }
 
-
 /// Returns the default user download directory, ensuring it exists on disk, falling back to `~/.qdm/downloads`.
 pub fn get_default_download_dir() -> String {
-    let dir = dirs::download_dir()
-        .unwrap_or_else(|| get_qdm_dir().join("downloads"));
+    let dir = dirs::download_dir().unwrap_or_else(|| get_qdm_dir().join("downloads"));
     let _ = std::fs::create_dir_all(&dir);
     dir.to_string_lossy().to_string()
 }
@@ -55,7 +53,8 @@ pub fn is_torrent_target(target: &str) -> bool {
         return true;
     }
     let p = std::path::Path::new(t);
-    p.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("torrent"))
+    p.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("torrent"))
 }
 
 /// Checks if either `filename` or `filename.qdmdownload` exists in the target directory.
@@ -78,9 +77,7 @@ pub fn generate_unique_filename(dir: &str, filename: &str) -> String {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("download");
-    let ext = file_path
-        .extension()
-        .and_then(|s| s.to_str());
+    let ext = file_path.extension().and_then(|s| s.to_str());
 
     let mut counter = 1u32;
     loop {
@@ -104,7 +101,7 @@ pub fn folder_exists(dir: &str, folder_name: &str) -> bool {
     target.exists() && target.is_dir()
 }
 
-/// Generates a unique folder name if one already exists. 
+/// Generates a unique folder name if one already exists.
 /// Appends ` (1)`, ` (2)`, etc. until a non-conflicting name is found.
 pub fn generate_unique_folder_name(dir: &str, folder_name: &str) -> String {
     if !folder_exists(dir, folder_name) {
@@ -138,8 +135,7 @@ pub fn sanitize_filename(name: &str) -> String {
     let leaf = trimmed
         .replace('\\', "/")
         .split('/')
-        .filter(|s| !s.is_empty() && *s != "." && *s != "..")
-        .last()
+        .rfind(|s| !s.is_empty() && *s != "." && *s != "..")
         .unwrap_or(trimmed)
         .to_string();
 
@@ -157,7 +153,7 @@ pub fn sanitize_filename(name: &str) -> String {
         .collect();
 
     // Strip trailing dots and spaces (Windows forbids files ending with a dot or space)
-    let stripped = sanitized.trim_end_matches(|c| c == '.' || c == ' ');
+    let stripped = sanitized.trim_end_matches(['.', ' ']);
     if stripped.is_empty() {
         sanitized = "download.file".to_string();
     } else {
@@ -168,9 +164,8 @@ pub fn sanitize_filename(name: &str) -> String {
     let stem = sanitized.split('.').next().unwrap_or(&sanitized);
     let stem_upper = stem.to_ascii_uppercase();
     const RESERVED: &[&str] = &[
-        "CON", "PRN", "AUX", "NUL",
-        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     ];
     if RESERVED.contains(&stem_upper.as_str()) {
         sanitized = format!("_{}", sanitized);
@@ -205,8 +200,14 @@ mod tests {
     #[test]
     fn test_sanitize_filename_normal() {
         assert_eq!(sanitize_filename("document.pdf"), "document.pdf");
-        assert_eq!(sanitize_filename("Big Buck Bunny.mp4"), "Big Buck Bunny.mp4");
-        assert_eq!(sanitize_filename("archive_v1.0.tar.gz"), "archive_v1.0.tar.gz");
+        assert_eq!(
+            sanitize_filename("Big Buck Bunny.mp4"),
+            "Big Buck Bunny.mp4"
+        );
+        assert_eq!(
+            sanitize_filename("archive_v1.0.tar.gz"),
+            "archive_v1.0.tar.gz"
+        );
     }
 
     #[test]
@@ -223,7 +224,10 @@ mod tests {
 
     #[test]
     fn test_sanitize_filename_trailing_dots_and_spaces() {
-        assert_eq!(sanitize_filename("my_document.pdf...   "), "my_document.pdf");
+        assert_eq!(
+            sanitize_filename("my_document.pdf...   "),
+            "my_document.pdf"
+        );
         assert_eq!(sanitize_filename("...."), "download.file");
         assert_eq!(sanitize_filename("    "), "download.file");
         assert_eq!(sanitize_filename(""), "download.file");

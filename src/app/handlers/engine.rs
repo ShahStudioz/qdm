@@ -25,7 +25,15 @@ pub(crate) fn handle_engine_event(app: &mut QdmApp, event: EngineUiEvent) -> Tas
             speed_bps,
             eta_secs,
             chunks,
-        } => handle_progress_updated(app, id, downloaded_bytes, total_bytes, speed_bps, eta_secs, chunks),
+        } => handle_progress_updated(
+            app,
+            id,
+            downloaded_bytes,
+            total_bytes,
+            speed_bps,
+            eta_secs,
+            chunks,
+        ),
 
         EngineUiEvent::TorrentProgressUpdated {
             id,
@@ -80,10 +88,17 @@ fn handle_progress_updated(
         if total_bytes.is_some() {
             item.total_bytes = total_bytes;
         }
-        if let Some(http) = item.http_meta_mut() { http.chunks = chunks; }
+        if let Some(http) = item.http_meta_mut() {
+            http.chunks = chunks;
+        }
 
         if item.download_type.is_update() {
-            if let crate::services::updater::UpdateStatus::Downloading { ref info, download_id, .. } = app.update_status {
+            if let crate::services::updater::UpdateStatus::Downloading {
+                ref info,
+                download_id,
+                ..
+            } = app.update_status
+            {
                 if download_id == id {
                     app.update_status = crate::services::updater::UpdateStatus::Downloading {
                         info: info.clone(),
@@ -127,6 +142,7 @@ fn handle_progress_updated(
 }
 
 /// Updates progress and metadata for active torrent downloads.
+#[allow(clippy::too_many_arguments)]
 fn handle_torrent_progress_updated(
     app: &mut QdmApp,
     id: usize,
@@ -179,17 +195,16 @@ fn handle_torrent_progress_updated(
 
 /// Applies a state change from the engine, guarding Queued/Scheduled states
 /// that are managed by the UI queue system.
-fn handle_state_changed(
-    app: &mut QdmApp,
-    id: usize,
-    state: DownloadState,
-) -> Task<Message> {
+fn handle_state_changed(app: &mut QdmApp, id: usize, state: DownloadState) -> Task<Message> {
     if let Some(item) = app.downloads.iter_mut().find(|d| d.id == id) {
         println!("[QDM UI] Item {} state changed -> {:?}", id, state);
         // Do not allow engine pause/resume to overwrite Queued or Scheduled state
         // managed by UI queue
         if matches!(item.state, DownloadState::Queued | DownloadState::Scheduled) {
-            if matches!(state, DownloadState::Completed | DownloadState::Failed { .. }) {
+            if matches!(
+                state,
+                DownloadState::Completed | DownloadState::Failed { .. }
+            ) {
                 item.state = state;
             }
         } else {
@@ -209,11 +224,7 @@ fn handle_state_changed(
 
 /// Handles successful download completion: updates state, records SHA-256 hash,
 /// timestamps completion, and promotes the next queued download.
-fn handle_download_completed(
-    app: &mut QdmApp,
-    id: usize,
-    sha256: Option<String>,
-) -> Task<Message> {
+fn handle_download_completed(app: &mut QdmApp, id: usize, sha256: Option<String>) -> Task<Message> {
     app.retry_counts.remove(&id);
     let engine = app.engine.clone();
 
@@ -224,10 +235,14 @@ fn handle_download_completed(
         );
 
         if item.download_type.is_update() {
-            if let crate::services::updater::UpdateStatus::Downloading { ref info, .. } = app.update_status {
+            if let crate::services::updater::UpdateStatus::Downloading { ref info, .. } =
+                app.update_status
+            {
                 let updates_dir = crate::core::utils::paths::get_updates_dir();
                 let target_file = updates_dir.join(&info.file_name);
-                let size = std::fs::metadata(&target_file).map(|m| m.len()).unwrap_or(0);
+                let size = std::fs::metadata(&target_file)
+                    .map(|m| m.len())
+                    .unwrap_or(0);
 
                 let is_valid = if let Some(ref expected_sha) = info.checksum_sha256 {
                     crate::services::updater::verify_file_sha256(&target_file, expected_sha)
@@ -253,16 +268,15 @@ fn handle_download_completed(
             return Task::none();
         }
 
-
         // Move torrent out of staging folder if it was used
         if let crate::models::download::DownloadType::Torrent(_) = item.download_type {
             let mut staging_dir = std::path::PathBuf::from(&item.save_path);
             staging_dir.push(format!(".qdmdownload_{}", item.id));
-            
+
             if staging_dir.exists() {
                 let source = staging_dir.join(&item.filename);
                 let target = std::path::PathBuf::from(&item.save_path).join(&item.filename);
-                
+
                 let file_to_move = if source.exists() {
                     Some(source)
                 } else if let Ok(entries) = std::fs::read_dir(&staging_dir) {
@@ -295,7 +309,7 @@ fn handle_download_completed(
                         std::thread::sleep(std::time::Duration::from_millis(50));
                     }
                 }
-                
+
                 // Clean up the staging directory (may still contain metadata)
                 let _ = std::fs::remove_dir_all(&staging_dir);
             }
@@ -316,20 +330,22 @@ fn handle_download_completed(
 
         // For torrents whose display name lacks an extension, resolve the
         // actual filename on disk so that future disk-sync checks can find it.
-        if matches!(item.download_type, crate::models::download::DownloadType::Torrent(_)) {
-            if !item.filename.contains('.') {
-                let save = std::path::Path::new(&item.save_path);
-                if let Ok(entries) = std::fs::read_dir(save) {
-                    for entry in entries.flatten() {
-                        if let Some(name) = entry.file_name().to_str() {
-                            if name.starts_with(&item.filename) && name.len() > item.filename.len() {
-                                println!(
-                                    "[QDM] Resolved torrent filename: {} -> {}",
-                                    item.filename, name
-                                );
-                                item.filename = name.to_string();
-                                break;
-                            }
+        if matches!(
+            item.download_type,
+            crate::models::download::DownloadType::Torrent(_)
+        ) && !item.filename.contains('.')
+        {
+            let save = std::path::Path::new(&item.save_path);
+            if let Ok(entries) = std::fs::read_dir(save) {
+                for entry in entries.flatten() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        if name.starts_with(&item.filename) && name.len() > item.filename.len() {
+                            println!(
+                                "[QDM] Resolved torrent filename: {} -> {}",
+                                item.filename, name
+                            );
+                            item.filename = name.to_string();
+                            break;
                         }
                     }
                 }
@@ -436,7 +452,10 @@ fn handle_persist_requested(
         target.sha256_hash = item.sha256_hash;
 
         // Only update state if not currently Queued or Scheduled by the queue manager
-        if !matches!(target.state, DownloadState::Queued | DownloadState::Scheduled) {
+        if !matches!(
+            target.state,
+            DownloadState::Queued | DownloadState::Scheduled
+        ) {
             match &item.state {
                 DownloadState::Paused { .. }
                 | DownloadState::Failed { .. }

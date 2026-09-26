@@ -42,12 +42,11 @@ impl QdmApp {
             .map(|_| Message::CheckNetworkConnectivity);
 
         // --- Window events subscription (resize, open, close request, maximize) ---
-        let window_sub =
-            iced::window::events().map(|(id, event)| Message::WindowEvent(id, event));
+        let window_sub = iced::window::events().map(|(id, event)| Message::WindowEvent(id, event));
 
         // --- System tray polling tick (300ms) ---
-        let tray_sub = iced::time::every(std::time::Duration::from_millis(300))
-            .map(|_| Message::TrayTick);
+        let tray_sub =
+            iced::time::every(std::time::Duration::from_millis(300)).map(|_| Message::TrayTick);
 
         // --- Single-instance IPC command stream ---
         let ipc_sub = Subscription::run_with_id(

@@ -83,10 +83,7 @@ pub enum DiagEvent {
         gap_since_last_micros: u64, // µs since previous BytesDownloaded
     },
     /// Task channel depth sampled at the moment of recv.
-    TaskChannelDepth {
-        ts: Ts,
-        depth: usize,
-    },
+    TaskChannelDepth { ts: Ts, depth: usize },
     /// Speed meter calculated a value at a UI tick.
     TaskSpeedCalc {
         ts: Ts,

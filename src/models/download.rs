@@ -257,7 +257,6 @@ impl DownloadType {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HttpMetadata {
     pub primary_url: DownloadUrl,
@@ -458,7 +457,12 @@ impl DownloadItem {
     pub fn is_folder(&self) -> bool {
         match &self.download_type {
             DownloadType::Torrent(torrent) => {
-                torrent.is_folder || torrent.selected_files.as_ref().map(|f| f.len() > 1).unwrap_or(false)
+                torrent.is_folder
+                    || torrent
+                        .selected_files
+                        .as_ref()
+                        .map(|f| f.len() > 1)
+                        .unwrap_or(false)
             }
             DownloadType::Http(_) | DownloadType::Update(_) => false,
         }
@@ -547,7 +551,7 @@ pub fn truncate_filename(name: &str, max_len: usize) -> String {
     let path = std::path::Path::new(name);
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         let ext_char_len = ext.chars().count() + 1; // including the dot
-        // If extension is not absurdly long (leaves at least 3 chars for stem + 1 for ellipsis)
+                                                    // If extension is not absurdly long (leaves at least 3 chars for stem + 1 for ellipsis)
         if ext_char_len + 4 <= max_len {
             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                 let avail_stem_chars = max_len - ext_char_len - 1; // 1 for ellipsis
@@ -601,8 +605,14 @@ mod tests {
         assert_eq!(format_speed_parts(500), ("500.0".to_string(), "B/s"));
         assert_eq!(format_speed_parts(1024), ("1.0".to_string(), "KB/s"));
         assert_eq!(format_speed_parts(1536), ("1.5".to_string(), "KB/s"));
-        assert_eq!(format_speed_parts(100 * 1024), ("100.0".to_string(), "KB/s"));
-        assert_eq!(format_speed_parts(10 * 1024 * 1024), ("10.0".to_string(), "MB/s"));
+        assert_eq!(
+            format_speed_parts(100 * 1024),
+            ("100.0".to_string(), "KB/s")
+        );
+        assert_eq!(
+            format_speed_parts(10 * 1024 * 1024),
+            ("10.0".to_string(), "MB/s")
+        );
         assert_eq!(format_speed_parts(157286400), ("150.0".to_string(), "MB/s"));
         assert_eq!(format_speed_parts(1610612736), ("1.5".to_string(), "GB/s"));
     }
@@ -669,4 +679,3 @@ mod tests {
         assert!(!torrent_item.is_folder());
     }
 }
-

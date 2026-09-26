@@ -101,7 +101,7 @@ impl QueueService {
     // }
 
     /// Moves a download up one position in the global queue order.
-    pub fn move_item_up(downloads: &mut Vec<DownloadItem>, id: usize) -> bool {
+    pub fn move_item_up(downloads: &mut [DownloadItem], id: usize) -> bool {
         if let Some(pos) = downloads.iter().position(|d| d.id == id) {
             if pos > 0 {
                 downloads.swap(pos, pos - 1);
@@ -112,7 +112,7 @@ impl QueueService {
     }
 
     /// Moves a download down one position in the global queue order.
-    pub fn move_item_down(downloads: &mut Vec<DownloadItem>, id: usize) -> bool {
+    pub fn move_item_down(downloads: &mut [DownloadItem], id: usize) -> bool {
         if let Some(pos) = downloads.iter().position(|d| d.id == id) {
             if pos + 1 < downloads.len() {
                 downloads.swap(pos, pos + 1);
@@ -123,7 +123,7 @@ impl QueueService {
     }
 
     /// Moves a scheduled download up relative to other scheduled downloads.
-    pub fn move_scheduled_up(downloads: &mut Vec<DownloadItem>, id: usize) -> bool {
+    pub fn move_scheduled_up(downloads: &mut [DownloadItem], id: usize) -> bool {
         if let Some(current_pos) = downloads.iter().position(|d| d.id == id && d.is_scheduled) {
             // Find preceding scheduled item
             let prev_scheduled_pos = downloads[..current_pos]
@@ -139,7 +139,7 @@ impl QueueService {
     }
 
     /// Moves a scheduled download down relative to other scheduled downloads.
-    pub fn move_scheduled_down(downloads: &mut Vec<DownloadItem>, id: usize) -> bool {
+    pub fn move_scheduled_down(downloads: &mut [DownloadItem], id: usize) -> bool {
         if let Some(current_pos) = downloads.iter().position(|d| d.id == id && d.is_scheduled) {
             // Find next scheduled item
             if current_pos + 1 < downloads.len() {

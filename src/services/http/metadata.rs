@@ -4,12 +4,12 @@
 //! and automatic retry backoff to reliably inspect file size, resumability, ETag, Last-Modified,
 //! and suggested filenames.
 
-use std::time::Duration;
 use reqwest::header::{
     ACCEPT_RANGES, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG,
     LAST_MODIFIED, RANGE,
 };
 use reqwest::{Client, StatusCode};
+use std::time::Duration;
 
 /// Metadata extracted from remote HTTP server headers.
 #[derive(Debug, Clone, Default)]
@@ -84,13 +84,19 @@ impl MetadataService {
                     if attempt + 1 < max_retries {
                         tokio::time::sleep(Duration::from_millis(300 * (1 << attempt))).await;
                     } else {
-                        return Err(format!("All metadata probe tiers failed for {}: {}", url, err));
+                        return Err(format!(
+                            "All metadata probe tiers failed for {}: {}",
+                            url, err
+                        ));
                     }
                 }
             }
         }
 
-        Err(format!("Metadata probe failed after multiple retry attempts for {}", url))
+        Err(format!(
+            "Metadata probe failed after multiple retry attempts for {}",
+            url
+        ))
     }
 
     async fn probe_range(&self, url: &str) -> Result<Option<FileMetadata>, String> {
@@ -106,24 +112,43 @@ impl MetadataService {
         let status = resp.status();
         if status == StatusCode::PARTIAL_CONTENT || status == StatusCode::OK {
             let headers = resp.headers();
-            let content_type = headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(String::from);
-            let last_modified = headers.get(LAST_MODIFIED).and_then(|v| v.to_str().ok()).map(String::from);
-            let etag = headers.get(ETAG).and_then(|v| v.to_str().ok()).map(String::from);
-            let content_disposition = headers.get(CONTENT_DISPOSITION).and_then(|v| v.to_str().ok()).map(String::from);
+            let content_type = headers
+                .get(CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .map(String::from);
+            let last_modified = headers
+                .get(LAST_MODIFIED)
+                .and_then(|v| v.to_str().ok())
+                .map(String::from);
+            let etag = headers
+                .get(ETAG)
+                .and_then(|v| v.to_str().ok())
+                .map(String::from);
+            let content_disposition = headers
+                .get(CONTENT_DISPOSITION)
+                .and_then(|v| v.to_str().ok())
+                .map(String::from);
 
             let supports_resume = status == StatusCode::PARTIAL_CONTENT
-                || headers.get(ACCEPT_RANGES).and_then(|v| v.to_str().ok()).map(|v| v.eq_ignore_ascii_case("bytes")).unwrap_or(false);
+                || headers
+                    .get(ACCEPT_RANGES)
+                    .and_then(|v| v.to_str().ok())
+                    .map(|v| v.eq_ignore_ascii_case("bytes"))
+                    .unwrap_or(false);
 
             let mut content_length = resp.content_length();
             if status == StatusCode::PARTIAL_CONTENT {
-                if let Some(content_range) = headers.get(CONTENT_RANGE).and_then(|v| v.to_str().ok()) {
-                    if let Some(total_str) = content_range.split('/').last() {
+                if let Some(content_range) =
+                    headers.get(CONTENT_RANGE).and_then(|v| v.to_str().ok())
+                {
+                    if let Some(total_str) = content_range.split('/').next_back() {
                         if let Ok(total) = total_str.trim().parse::<u64>() {
                             content_length = Some(total);
                         }
                     }
                 }
-            } else if let Some(len_val) = headers.get(CONTENT_LENGTH).and_then(|v| v.to_str().ok()) {
+            } else if let Some(len_val) = headers.get(CONTENT_LENGTH).and_then(|v| v.to_str().ok())
+            {
                 if let Ok(len) = len_val.trim().parse::<u64>() {
                     content_length = Some(len);
                 }
@@ -161,10 +186,22 @@ impl MetadataService {
         let status = resp.status();
         if status.is_success() {
             let headers = resp.headers();
-            let content_type = headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(String::from);
-            let last_modified = headers.get(LAST_MODIFIED).and_then(|v| v.to_str().ok()).map(String::from);
-            let etag = headers.get(ETAG).and_then(|v| v.to_str().ok()).map(String::from);
-            let content_disposition = headers.get(CONTENT_DISPOSITION).and_then(|v| v.to_str().ok()).map(String::from);
+            let content_type = headers
+                .get(CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .map(String::from);
+            let last_modified = headers
+                .get(LAST_MODIFIED)
+                .and_then(|v| v.to_str().ok())
+                .map(String::from);
+            let etag = headers
+                .get(ETAG)
+                .and_then(|v| v.to_str().ok())
+                .map(String::from);
+            let content_disposition = headers
+                .get(CONTENT_DISPOSITION)
+                .and_then(|v| v.to_str().ok())
+                .map(String::from);
 
             let supports_resume = headers
                 .get(ACCEPT_RANGES)
@@ -209,10 +246,22 @@ impl MetadataService {
         }
 
         let headers = resp.headers();
-        let content_type = headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(String::from);
-        let last_modified = headers.get(LAST_MODIFIED).and_then(|v| v.to_str().ok()).map(String::from);
-        let etag = headers.get(ETAG).and_then(|v| v.to_str().ok()).map(String::from);
-        let content_disposition = headers.get(CONTENT_DISPOSITION).and_then(|v| v.to_str().ok()).map(String::from);
+        let content_type = headers
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
+        let last_modified = headers
+            .get(LAST_MODIFIED)
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
+        let etag = headers
+            .get(ETAG)
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
+        let content_disposition = headers
+            .get(CONTENT_DISPOSITION)
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
 
         let supports_resume = headers
             .get(ACCEPT_RANGES)

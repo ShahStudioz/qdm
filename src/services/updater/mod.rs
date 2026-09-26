@@ -76,8 +76,9 @@ pub struct CachedUpdate {
 }
 
 /// Current state of the auto-update subsystem.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum UpdateStatus {
+    #[default]
     Idle,
     Checking,
     UpToDate {
@@ -104,12 +105,6 @@ pub enum UpdateStatus {
     Error {
         message: String,
     },
-}
-
-impl Default for UpdateStatus {
-    fn default() -> Self {
-        UpdateStatus::Idle
-    }
 }
 
 #[allow(dead_code)]
@@ -347,8 +342,8 @@ pub fn verify_file_sha256(file_path: &Path, expected_sha256: &str) -> bool {
 
 /// Simple semver comparison: returns true if `ver_a` is strictly greater than `ver_b`.
 pub fn is_version_greater(ver_a: &str, ver_b: &str) -> bool {
-    let clean_a = ver_a.trim_start_matches(|c| c == 'v' || c == 'V');
-    let clean_b = ver_b.trim_start_matches(|c| c == 'v' || c == 'V');
+    let clean_a = ver_a.trim_start_matches(['v', 'V']);
+    let clean_b = ver_b.trim_start_matches(['v', 'V']);
 
     let parse_parts = |s: &str| -> Vec<u64> {
         s.split('.')

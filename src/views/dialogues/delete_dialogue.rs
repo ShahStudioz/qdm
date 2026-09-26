@@ -1,7 +1,7 @@
-use iced::widget::{button, checkbox, column, container, row, text, Space};
-use iced::{Alignment, Element, Length};
 use crate::icons::{self, icon};
 use crate::theme::{colors, styles};
+use iced::widget::{button, checkbox, column, container, row, text, Space};
+use iced::{Alignment, Element, Length};
 
 #[derive(Debug, Clone)]
 pub struct DeletePendingItem {
@@ -10,21 +10,11 @@ pub struct DeletePendingItem {
     pub save_path: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DeleteDialogModel {
     pub is_open: bool,
     pub pending: Option<DeletePendingItem>,
     pub remember_choice: bool,
-}
-
-impl Default for DeleteDialogModel {
-    fn default() -> Self {
-        Self {
-            is_open: false,
-            pending: None,
-            remember_choice: false,
-        }
-    }
 }
 
 impl DeleteDialogModel {
@@ -95,20 +85,23 @@ pub fn view(state: &DeleteDialogModel) -> Element<'_, DeleteDialogMessage> {
     ]
     .spacing(4);
 
-    let remember_chk = checkbox("Remember my choice for future deletions", state.remember_choice)
-        .on_toggle(DeleteDialogMessage::ToggleRemember)
-        .size(16)
-        .text_size(13)
-        .style(|_theme, _status| checkbox::Style {
-            background: iced::Background::Color(colors::SURFACE_HIGH),
-            icon_color: colors::PRIMARY,
-            border: iced::Border {
-                color: colors::BORDER,
-                width: 1.0,
-                radius: 4.0.into(),
-            },
-            text_color: Some(colors::TEXT_PRIMARY),
-        });
+    let remember_chk = checkbox(
+        "Remember my choice for future deletions",
+        state.remember_choice,
+    )
+    .on_toggle(DeleteDialogMessage::ToggleRemember)
+    .size(16)
+    .text_size(13)
+    .style(|_theme, _status| checkbox::Style {
+        background: iced::Background::Color(colors::SURFACE_HIGH),
+        icon_color: colors::PRIMARY,
+        border: iced::Border {
+            color: colors::BORDER,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        text_color: Some(colors::TEXT_PRIMARY),
+    });
 
     let cancel_btn = button(text("Cancel").size(13).color(colors::TEXT_MUTED))
         .padding([8, 14])
@@ -117,8 +110,12 @@ pub fn view(state: &DeleteDialogModel) -> Element<'_, DeleteDialogMessage> {
 
     let remove_list_btn = button(
         row![
-            icon(icons::ICON_CANCEL).size(14).color(colors::TEXT_PRIMARY),
-            text("Remove from List").size(13).color(colors::TEXT_PRIMARY),
+            icon(icons::ICON_CANCEL)
+                .size(14)
+                .color(colors::TEXT_PRIMARY),
+            text("Remove from List")
+                .size(13)
+                .color(colors::TEXT_PRIMARY),
         ]
         .spacing(6)
         .align_y(Alignment::Center),
@@ -130,7 +127,10 @@ pub fn view(state: &DeleteDialogModel) -> Element<'_, DeleteDialogMessage> {
     let delete_disk_btn = button(
         row![
             icon(icons::ICON_TRASH).size(14).color(colors::BACKGROUND),
-            text("Delete File from Disk").size(13).font(styles::BOLD_FONT).color(colors::BACKGROUND),
+            text("Delete File from Disk")
+                .size(13)
+                .font(styles::BOLD_FONT)
+                .color(colors::BACKGROUND),
         ]
         .spacing(6)
         .align_y(Alignment::Center),
@@ -138,7 +138,9 @@ pub fn view(state: &DeleteDialogModel) -> Element<'_, DeleteDialogMessage> {
     .padding([8, 16])
     .style(|_theme, status| {
         let bg = match status {
-            button::Status::Hovered | button::Status::Pressed => iced::Color::from_rgb(0.95, 0.35, 0.35),
+            button::Status::Hovered | button::Status::Pressed => {
+                iced::Color::from_rgb(0.95, 0.35, 0.35)
+            }
             _ => colors::ERROR,
         };
         button::Style {

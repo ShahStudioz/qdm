@@ -1,8 +1,8 @@
-use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
-use iced::{Alignment, Element, Length, Task};
 use crate::icons::{self, icon};
 use crate::models::download::{format_bytes, DownloadUrl};
 use crate::theme::{colors, styles};
+use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
+use iced::{Alignment, Element, Length, Task};
 
 #[derive(Debug, Clone)]
 pub struct MirrorDialogModel {
@@ -286,17 +286,17 @@ pub fn view(state: &MirrorDialogModel) -> Element<'_, MirrorDialogueMessage> {
     }
 
     let primary_box = container(primary_col)
-    .padding([10, 14])
-    .width(Length::Fill)
-    .style(|_| container::Style {
-        background: Some(iced::Background::Color(colors::SURFACE)),
-        border: iced::Border {
-            color: colors::BORDER,
-            width: 1.0,
-            radius: 6.0.into(),
-        },
-        ..Default::default()
-    });
+        .padding([10, 14])
+        .width(Length::Fill)
+        .style(|_| container::Style {
+            background: Some(iced::Background::Color(colors::SURFACE)),
+            border: iced::Border {
+                color: colors::BORDER,
+                width: 1.0,
+                radius: 6.0.into(),
+            },
+            ..Default::default()
+        });
 
     // Mirrors List
     let mut mirrors_list_col = column![].spacing(8).width(Length::Fill);
@@ -315,21 +315,32 @@ pub fn view(state: &MirrorDialogModel) -> Element<'_, MirrorDialogueMessage> {
     } else {
         for (idx, mirror) in state.mirror_urls.iter().enumerate() {
             let is_testing = state.testing_index == Some(idx);
-            let status_badge = render_status_badge(
-                mirror.status_code,
-                mirror.error.as_deref(),
-                is_testing,
-            );
+            let status_badge =
+                render_status_badge(mirror.status_code, mirror.error.as_deref(), is_testing);
 
-            let toggle_label = if mirror.is_active { "Active" } else { "Disabled" };
+            let toggle_label = if mirror.is_active {
+                "Active"
+            } else {
+                "Disabled"
+            };
             let toggle_btn = button(
                 row![
-                    icon(if mirror.is_active { icons::ICON_CHECK } else { icons::ICON_CANCEL })
-                        .size(11)
-                        .color(if mirror.is_active { colors::SUCCESS } else { colors::TEXT_MUTED }),
-                    text(toggle_label)
-                        .size(11)
-                        .color(if mirror.is_active { colors::TEXT_PRIMARY } else { colors::TEXT_MUTED }),
+                    icon(if mirror.is_active {
+                        icons::ICON_CHECK
+                    } else {
+                        icons::ICON_CANCEL
+                    })
+                    .size(11)
+                    .color(if mirror.is_active {
+                        colors::SUCCESS
+                    } else {
+                        colors::TEXT_MUTED
+                    }),
+                    text(toggle_label).size(11).color(if mirror.is_active {
+                        colors::TEXT_PRIMARY
+                    } else {
+                        colors::TEXT_MUTED
+                    }),
                 ]
                 .spacing(4)
                 .align_y(Alignment::Center),
@@ -338,19 +349,15 @@ pub fn view(state: &MirrorDialogModel) -> Element<'_, MirrorDialogueMessage> {
             .style(styles::ghost_button_style)
             .on_press(MirrorDialogueMessage::ToggleMirrorActive(idx));
 
-            let test_btn = button(
-                icon(icons::ICON_RETRY).size(12).color(colors::TEXT_PRIMARY)
-            )
-            .padding([4, 8])
-            .style(styles::ghost_button_style)
-            .on_press(MirrorDialogueMessage::TestMirrorPressed(idx));
+            let test_btn = button(icon(icons::ICON_RETRY).size(12).color(colors::TEXT_PRIMARY))
+                .padding([4, 8])
+                .style(styles::ghost_button_style)
+                .on_press(MirrorDialogueMessage::TestMirrorPressed(idx));
 
-            let delete_btn = button(
-                icon(icons::ICON_TRASH).size(12).color(colors::ERROR)
-            )
-            .padding([4, 8])
-            .style(styles::ghost_button_style)
-            .on_press(MirrorDialogueMessage::DeleteMirrorPressed(idx));
+            let delete_btn = button(icon(icons::ICON_TRASH).size(12).color(colors::ERROR))
+                .padding([4, 8])
+                .style(styles::ghost_button_style)
+                .on_press(MirrorDialogueMessage::DeleteMirrorPressed(idx));
 
             let mut mirror_detail_col = column![
                 row![
@@ -365,23 +372,32 @@ pub fn view(state: &MirrorDialogModel) -> Element<'_, MirrorDialogueMessage> {
                 text(&mirror.url)
                     .size(12)
                     .font(styles::MONO_FONT)
-                    .color(if mirror.is_active { colors::TEXT_PRIMARY } else { colors::TEXT_MUTED }),
+                    .color(if mirror.is_active {
+                        colors::TEXT_PRIMARY
+                    } else {
+                        colors::TEXT_MUTED
+                    }),
             ]
             .spacing(4)
             .width(Length::Fill);
 
             if mirror.downloaded_bytes > 0 {
                 mirror_detail_col = mirror_detail_col.push(
-                    text(format!("Downloaded: {}", format_bytes(mirror.downloaded_bytes)))
-                        .size(11)
-                        .color(colors::TEXT_MUTED),
+                    text(format!(
+                        "Downloaded: {}",
+                        format_bytes(mirror.downloaded_bytes)
+                    ))
+                    .size(11)
+                    .color(colors::TEXT_MUTED),
                 );
             }
 
             let mirror_row = container(
                 row![
                     mirror_detail_col,
-                    row![toggle_btn, test_btn, delete_btn].spacing(4).align_y(Alignment::Center),
+                    row![toggle_btn, test_btn, delete_btn]
+                        .spacing(4)
+                        .align_y(Alignment::Center),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -391,7 +407,11 @@ pub fn view(state: &MirrorDialogModel) -> Element<'_, MirrorDialogueMessage> {
             .style(move |_| container::Style {
                 background: Some(iced::Background::Color(colors::SURFACE_HIGH)),
                 border: iced::Border {
-                    color: if mirror.is_active { colors::BORDER } else { colors::SURFACE },
+                    color: if mirror.is_active {
+                        colors::BORDER
+                    } else {
+                        colors::SURFACE
+                    },
                     width: 1.0,
                     radius: 6.0.into(),
                 },
@@ -407,17 +427,23 @@ pub fn view(state: &MirrorDialogModel) -> Element<'_, MirrorDialogueMessage> {
         .width(Length::Fill);
 
     // Add Mirror Form
-    let url_input = text_input("https://mirror1.example.com/file.zip", &state.new_mirror_url)
-        .on_input(MirrorDialogueMessage::NewMirrorUrlChanged)
-        .on_submit(MirrorDialogueMessage::AddMirrorPressed)
-        .padding([8, 10])
-        .width(Length::Fill)
-        .style(styles::dark_input_style);
+    let url_input = text_input(
+        "https://mirror1.example.com/file.zip",
+        &state.new_mirror_url,
+    )
+    .on_input(MirrorDialogueMessage::NewMirrorUrlChanged)
+    .on_submit(MirrorDialogueMessage::AddMirrorPressed)
+    .padding([8, 10])
+    .width(Length::Fill)
+    .style(styles::dark_input_style);
 
     let add_btn = button(
         row![
             icon(icons::ICON_PLUS).size(12).color(colors::BACKGROUND),
-            text("Add Mirror").size(12).font(styles::BOLD_FONT).color(colors::BACKGROUND),
+            text("Add Mirror")
+                .size(12)
+                .font(styles::BOLD_FONT)
+                .color(colors::BACKGROUND),
         ]
         .spacing(6)
         .align_y(Alignment::Center),
@@ -426,16 +452,24 @@ pub fn view(state: &MirrorDialogModel) -> Element<'_, MirrorDialogueMessage> {
     .style(styles::primary_button_style)
     .on_press(MirrorDialogueMessage::AddMirrorPressed);
 
-    let add_mirror_row = row![url_input, add_btn].spacing(8).align_y(Alignment::Center);
+    let add_mirror_row = row![url_input, add_btn]
+        .spacing(8)
+        .align_y(Alignment::Center);
 
     let error_view: Element<MirrorDialogueMessage> = if !state.error_message.is_empty() {
-        text(&state.error_message).size(12).color(colors::ERROR).into()
+        text(&state.error_message)
+            .size(12)
+            .color(colors::ERROR)
+            .into()
     } else {
         Space::with_height(0).into()
     };
 
     let add_section = column![
-        text("ADD MIRROR URL").size(11).font(styles::BOLD_FONT).color(colors::TEXT_MUTED),
+        text("ADD MIRROR URL")
+            .size(11)
+            .font(styles::BOLD_FONT)
+            .color(colors::TEXT_MUTED),
         add_mirror_row,
         error_view,
     ]
@@ -462,10 +496,15 @@ pub fn view(state: &MirrorDialogModel) -> Element<'_, MirrorDialogueMessage> {
             ..Default::default()
         });
 
-    let done_btn = button(text("Done").size(14).font(styles::BOLD_FONT).color(colors::BACKGROUND))
-        .padding([8, 24])
-        .style(styles::primary_button_style)
-        .on_press(MirrorDialogueMessage::SaveAndClose);
+    let done_btn = button(
+        text("Done")
+            .size(14)
+            .font(styles::BOLD_FONT)
+            .color(colors::BACKGROUND),
+    )
+    .padding([8, 24])
+    .style(styles::primary_button_style)
+    .on_press(MirrorDialogueMessage::SaveAndClose);
 
     let footer_row = row![Space::with_width(Length::Fill), done_btn]
         .padding([14, 20])
@@ -521,7 +560,7 @@ fn render_status_badge(
     }
 
     if let Some(code) = status_code {
-        let (bg, border, text_color, label) = if code >= 200 && code < 300 {
+        let (bg, border, text_color, label) = if (200..300).contains(&code) {
             (
                 iced::Color::from_rgba(0.18, 0.80, 0.44, 0.15),
                 colors::SUCCESS,
@@ -544,33 +583,43 @@ fn render_status_badge(
             )
         };
 
-        container(text(label).size(10).font(styles::BOLD_FONT).color(text_color))
-            .padding([2, 6])
-            .style(move |_| container::Style {
-                background: Some(iced::Background::Color(bg)),
-                border: iced::Border {
-                    color: border,
-                    width: 1.0,
-                    radius: 4.0.into(),
-                },
-                ..Default::default()
-            })
-            .into()
-    } else if let Some(_) = error {
-        container(text("Error / Offline").size(10).font(styles::BOLD_FONT).color(colors::ERROR))
-            .padding([2, 6])
-            .style(|_| container::Style {
-                background: Some(iced::Background::Color(iced::Color::from_rgba(
-                    0.93, 0.26, 0.26, 0.15,
-                ))),
-                border: iced::Border {
-                    color: colors::ERROR,
-                    width: 1.0,
-                    radius: 4.0.into(),
-                },
-                ..Default::default()
-            })
-            .into()
+        container(
+            text(label)
+                .size(10)
+                .font(styles::BOLD_FONT)
+                .color(text_color),
+        )
+        .padding([2, 6])
+        .style(move |_| container::Style {
+            background: Some(iced::Background::Color(bg)),
+            border: iced::Border {
+                color: border,
+                width: 1.0,
+                radius: 4.0.into(),
+            },
+            ..Default::default()
+        })
+        .into()
+    } else if error.is_some() {
+        container(
+            text("Error / Offline")
+                .size(10)
+                .font(styles::BOLD_FONT)
+                .color(colors::ERROR),
+        )
+        .padding([2, 6])
+        .style(|_| container::Style {
+            background: Some(iced::Background::Color(iced::Color::from_rgba(
+                0.93, 0.26, 0.26, 0.15,
+            ))),
+            border: iced::Border {
+                color: colors::ERROR,
+                width: 1.0,
+                radius: 4.0.into(),
+            },
+            ..Default::default()
+        })
+        .into()
     } else {
         container(text("Untested").size(10).color(colors::TEXT_MUTED))
             .padding([2, 6])

@@ -30,7 +30,7 @@ use crate::services::http::writer::PositionalWriter;
 
 /// Events transmitted from the Task Controller back to the Download Engine.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
+#[allow(dead_code, clippy::large_enum_variant)]
 pub enum TaskEvent {
     ProgressUpdated {
         id: usize,

@@ -179,7 +179,10 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
             let browse_torrent_btn = button(
                 row![
                     icon(icons::ICON_FOLDER).size(13).color(colors::TORRENT),
-                    text(".torrent").size(12).font(styles::BOLD_FONT).color(colors::TORRENT),
+                    text(".torrent")
+                        .size(12)
+                        .font(styles::BOLD_FONT)
+                        .color(colors::TORRENT),
                 ]
                 .spacing(5)
                 .align_y(Alignment::Center),
@@ -289,13 +292,17 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                             for file in &info.files {
                                 let is_selected = state.selected_files.contains(&file.id);
                                 let file_row = row![
-                                    iced::widget::checkbox("", is_selected)
-                                        .on_toggle({
-                                            let id = file.id;
-                                            move |_| AddDialogueModalMessage::ToggleFileSelection(id)
-                                        }),
-                                    text(&file.path).size(12).color(colors::TEXT_PRIMARY).width(Length::Fill),
-                                    text(format_bytes(file.size)).size(11).color(colors::TEXT_MUTED),
+                                    iced::widget::checkbox("", is_selected).on_toggle({
+                                        let id = file.id;
+                                        move |_| AddDialogueModalMessage::ToggleFileSelection(id)
+                                    }),
+                                    text(&file.path)
+                                        .size(12)
+                                        .color(colors::TEXT_PRIMARY)
+                                        .width(Length::Fill),
+                                    text(format_bytes(file.size))
+                                        .size(11)
+                                        .color(colors::TEXT_MUTED),
                                 ]
                                 .spacing(8)
                                 .align_y(Alignment::Center);
@@ -306,21 +313,24 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                                 .height(Length::Fixed(150.0))
                                 .width(Length::Fill);
 
-                            container(
-                                column![
-                                    row![
-                                        text(format!("Torrent: {} files ({} selected)", file_count, selected_count))
-                                            .size(12)
-                                            .font(styles::BOLD_FONT)
-                                            .color(colors::TEXT_PRIMARY),
-                                        Space::with_width(Length::Fill),
-                                        text(format!("Total: {}", format_bytes(total_size))).size(12).color(colors::TEXT_MUTED),
-                                    ]
-                                    .align_y(Alignment::Center),
-                                    Space::with_height(8),
-                                    scrollable_files
+                            container(column![
+                                row![
+                                    text(format!(
+                                        "Torrent: {} files ({} selected)",
+                                        file_count, selected_count
+                                    ))
+                                    .size(12)
+                                    .font(styles::BOLD_FONT)
+                                    .color(colors::TEXT_PRIMARY),
+                                    Space::with_width(Length::Fill),
+                                    text(format!("Total: {}", format_bytes(total_size)))
+                                        .size(12)
+                                        .color(colors::TEXT_MUTED),
                                 ]
-                            )
+                                .align_y(Alignment::Center),
+                                Space::with_height(8),
+                                scrollable_files
+                            ])
                             .padding([8, 12])
                             .width(Length::Fill)
                             .style(|_| container::Style {
@@ -351,16 +361,24 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                 state.probe_result,
                 Some(crate::services::engine::ProbeResult::Torrent(ref info)) if info.is_folder
             );
-            let filename_label = form_label(if is_torrent_folder { "FOLDER NAME" } else { "FILENAME" });
+            let filename_label = form_label(if is_torrent_folder {
+                "FOLDER NAME"
+            } else {
+                "FILENAME"
+            });
             let wand_icon = icon(icons::ICON_WAND).size(14).color(colors::PRIMARY);
             let filename_widget = text_input(
-                    if is_torrent_folder { "Folder Name" } else { "file.zip" },
-                    &state.filename,
-                )
-                .on_input(AddDialogueModalMessage::AddFilenameChanged)
-                .padding([10, 12])
-                .width(Length::Fill)
-                .style(styles::transparent_text_input_style);
+                if is_torrent_folder {
+                    "Folder Name"
+                } else {
+                    "file.zip"
+                },
+                &state.filename,
+            )
+            .on_input(AddDialogueModalMessage::AddFilenameChanged)
+            .padding([10, 12])
+            .width(Length::Fill)
+            .style(styles::transparent_text_input_style);
 
             let filename_box = container(
                 row![filename_widget, wand_icon]
@@ -382,7 +400,10 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
             let has_conflict = if is_torrent_folder {
                 crate::core::utils::paths::folder_exists(&state.save_to, &state.filename)
             } else {
-                crate::core::utils::paths::file_exists_or_downloading(&state.save_to, &state.filename)
+                crate::core::utils::paths::file_exists_or_downloading(
+                    &state.save_to,
+                    &state.filename,
+                )
             };
             let collision_warning_text = if is_torrent_folder {
                 "Folder with this name already exists in destination."
@@ -508,11 +529,7 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                     .width(Length::FillPortion(1));
 
                 if is_torrent {
-                    column![
-                        speed_limit_col
-                    ]
-                    .spacing(6)
-                    .into()
+                    column![speed_limit_col].spacing(6).into()
                 } else {
                     let max_conn_label = form_label("MAX CONNECTIONS");
                     let max_conn_input = text_input("8", &state.max_connections)
@@ -524,7 +541,7 @@ pub fn view(state: &AddDialogModel) -> Element<'_, AddDialogueModalMessage> {
                     let max_conn_col = column![max_conn_label, max_conn_input]
                         .spacing(6)
                         .width(Length::FillPortion(1));
-                    
+
                     let conn_speed_row = row![max_conn_col, speed_limit_col].spacing(16);
 
                     let mirrors_label =
@@ -815,10 +832,17 @@ pub fn update(
             let is_torrent = crate::core::utils::paths::is_torrent_target(&url);
             if url.is_empty() {
                 state.has_error = true;
-                state.error = "Please enter a valid download URL or select a .torrent file".to_string();
-            } else if !url.starts_with("http://") && !url.starts_with("https://") && !url.starts_with("magnet:") && !is_torrent {
+                state.error =
+                    "Please enter a valid download URL or select a .torrent file".to_string();
+            } else if !url.starts_with("http://")
+                && !url.starts_with("https://")
+                && !url.starts_with("magnet:")
+                && !is_torrent
+            {
                 state.has_error = true;
-                state.error = "URL must start with http://, https://, magnet:, or be a local .torrent file".to_string();
+                state.error =
+                    "URL must start with http://, https://, magnet:, or be a local .torrent file"
+                        .to_string();
             } else {
                 state.step = AddDialogStep::FetchingInfo;
                 state.has_error = false;
@@ -870,11 +894,10 @@ pub fn update(
                 if std::path::Path::new(&current_save_to).exists() {
                     dialog = dialog.set_directory(&current_save_to);
                 }
-                if let Some(folder) = dialog.pick_folder().await {
-                    Some(folder.path().to_string_lossy().to_string())
-                } else {
-                    None
-                }
+                dialog
+                    .pick_folder()
+                    .await
+                    .map(|folder| folder.path().to_string_lossy().to_string())
             };
             return Task::perform(task, AddDialogueModalMessage::FolderPicked);
         }
@@ -967,7 +990,9 @@ fn unquote_header_value(val: &str) -> String {
         }
         unescaped
     } else {
-        trimmed.trim_matches(|c| c == '\'' || c == '"' || c == ';').to_string()
+        trimmed
+            .trim_matches(|c| c == '\'' || c == '"' || c == ';')
+            .to_string()
     }
 }
 
@@ -1031,10 +1056,14 @@ pub fn parse_content_disposition(cd: &str) -> Option<String> {
                     let name = if charset.eq_ignore_ascii_case("iso-8859-1")
                         || charset.eq_ignore_ascii_case("latin1")
                     {
-                        decoded_bytes.into_iter().map(|b| b as char).collect::<String>()
+                        decoded_bytes
+                            .into_iter()
+                            .map(|b| b as char)
+                            .collect::<String>()
                     } else {
-                        String::from_utf8(decoded_bytes.clone())
-                            .unwrap_or_else(|_| String::from_utf8_lossy(&decoded_bytes).into_owned())
+                        String::from_utf8(decoded_bytes.clone()).unwrap_or_else(|_| {
+                            String::from_utf8_lossy(&decoded_bytes).into_owned()
+                        })
                     };
                     let trimmed_name = name.trim();
                     if !trimmed_name.is_empty() {
@@ -1081,12 +1110,14 @@ pub fn extract_filename(url_str: &str, content_disposition: Option<&str>) -> Str
         }
         for (k, v) in url.query_pairs() {
             let k_lower = k.to_lowercase();
-            if (k_lower == "filename" || k_lower == "file" || k_lower == "name") && !v.trim().is_empty() {
+            if (k_lower == "filename" || k_lower == "file" || k_lower == "name")
+                && !v.trim().is_empty()
+            {
                 return sanitize_filename(v.trim());
             }
         }
-        if let Some(segments) = url.path_segments() {
-            if let Some(last) = segments.last() {
+        if let Some(mut segments) = url.path_segments() {
+            if let Some(last) = segments.next_back() {
                 let decoded = percent_decode(last.trim());
                 let sanitized = sanitize_filename(&decoded);
                 if sanitized != "download.file" && !sanitized.is_empty() {
@@ -1096,7 +1127,7 @@ pub fn extract_filename(url_str: &str, content_disposition: Option<&str>) -> Str
         }
     } else {
         let path = url_str.split('?').next().unwrap_or(url_str);
-        if let Some(last) = path.split('/').last() {
+        if let Some(last) = path.split('/').next_back() {
             let decoded = percent_decode(last.trim());
             let sanitized = sanitize_filename(&decoded);
             if sanitized != "download.file" && !sanitized.is_empty() {
@@ -1181,13 +1212,19 @@ mod tests {
         // Reproduces the exact Microsoft Azure CDN header
         let cd_quoted = "attachment; filename=\"Win11_25H2_English_x64_v2.iso\"; filename*=UTF-8''Win11_25H2_English_x64_v2.iso";
         assert_eq!(
-            extract_filename("https://software.download.prss.microsoft.com/dbazure/Win11.iso", Some(cd_quoted)),
+            extract_filename(
+                "https://software.download.prss.microsoft.com/dbazure/Win11.iso",
+                Some(cd_quoted)
+            ),
             "Win11_25H2_English_x64_v2.iso"
         );
 
         let cd_unquoted = "attachment; filename=Win11_25H2_English_x64_v2.iso; filename*=UTF-8''Win11_25H2_English_x64_v2.iso";
         assert_eq!(
-            extract_filename("https://software.download.prss.microsoft.com/dbazure/Win11.iso", Some(cd_unquoted)),
+            extract_filename(
+                "https://software.download.prss.microsoft.com/dbazure/Win11.iso",
+                Some(cd_unquoted)
+            ),
             "Win11_25H2_English_x64_v2.iso"
         );
     }
@@ -1250,7 +1287,9 @@ mod tests {
         assert!(is_valid_url_or_magnet("http://example.com/file.zip"));
         assert!(is_valid_url_or_magnet("https://example.com/image.png"));
         assert!(is_valid_url_or_magnet("ftp://server.org/archive.tar.gz"));
-        assert!(is_valid_url_or_magnet("magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335380dc1d7d1ee&dn=archlinux.iso"));
+        assert!(is_valid_url_or_magnet(
+            "magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335380dc1d7d1ee&dn=archlinux.iso"
+        ));
         assert!(is_valid_url_or_magnet("C:\\Downloads\\ubuntu.torrent"));
         assert!(is_valid_url_or_magnet("/tmp/test.torrent"));
 

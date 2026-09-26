@@ -1,7 +1,7 @@
-use iced::widget::{button, checkbox, column, container, row, text, Space};
-use iced::{Alignment, Element, Length};
 use crate::icons::{self, icon};
 use crate::theme::{colors, styles};
+use iced::widget::{button, checkbox, column, container, row, text, Space};
+use iced::{Alignment, Element, Length};
 
 #[derive(Debug, Clone)]
 pub struct ConflictPendingDownload {
@@ -148,7 +148,9 @@ pub fn view(state: &ConflictDialogModel) -> Element<'_, ConflictDialogMessage> {
     .padding([8, 12])
     .width(Length::Fill)
     .style(|_| container::Style {
-        background: Some(iced::Background::Color(iced::Color::from_rgba(0.95, 0.70, 0.20, 0.10))),
+        background: Some(iced::Background::Color(iced::Color::from_rgba(
+            0.95, 0.70, 0.20, 0.10,
+        ))),
         border: iced::Border {
             color: iced::Color::from_rgba(0.95, 0.70, 0.20, 0.35),
             width: 1.0,
@@ -166,9 +168,7 @@ pub fn view(state: &ConflictDialogModel) -> Element<'_, ConflictDialogMessage> {
     };
     let file_detail_box = container(
         column![
-            text(detail_description)
-                .size(12)
-                .color(colors::TEXT_MUTED),
+            text(detail_description).size(12).color(colors::TEXT_MUTED),
             text(filename)
                 .size(13)
                 .font(styles::BOLD_FONT)
@@ -196,20 +196,23 @@ pub fn view(state: &ConflictDialogModel) -> Element<'_, ConflictDialogMessage> {
         .size(13)
         .color(colors::TEXT_PRIMARY);
 
-    let remember_chk = checkbox("Remember my choice for future downloads", state.remember_choice)
-        .on_toggle(ConflictDialogMessage::ToggleRemember)
-        .size(16)
-        .text_size(13)
-        .style(|_theme, _status| checkbox::Style {
-            background: iced::Background::Color(colors::SURFACE_HIGH),
-            icon_color: colors::PRIMARY,
-            border: iced::Border {
-                color: colors::BORDER,
-                width: 1.0,
-                radius: 4.0.into(),
-            },
-            text_color: Some(colors::TEXT_PRIMARY),
-        });
+    let remember_chk = checkbox(
+        "Remember my choice for future downloads",
+        state.remember_choice,
+    )
+    .on_toggle(ConflictDialogMessage::ToggleRemember)
+    .size(16)
+    .text_size(13)
+    .style(|_theme, _status| checkbox::Style {
+        background: iced::Background::Color(colors::SURFACE_HIGH),
+        icon_color: colors::PRIMARY,
+        border: iced::Border {
+            color: colors::BORDER,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        text_color: Some(colors::TEXT_PRIMARY),
+    });
 
     let cancel_btn = button(text("Cancel").size(13).color(colors::TEXT_MUTED))
         .padding([8, 14])
@@ -219,7 +222,10 @@ pub fn view(state: &ConflictDialogModel) -> Element<'_, ConflictDialogMessage> {
     let overwrite_btn = button(
         row![
             icon(icons::ICON_WARN).size(14).color(colors::WARNING),
-            text("Overwrite").size(13).font(styles::BOLD_FONT).color(colors::WARNING),
+            text("Overwrite")
+                .size(13)
+                .font(styles::BOLD_FONT)
+                .color(colors::WARNING),
         ]
         .spacing(6)
         .align_y(Alignment::Center),
@@ -243,7 +249,10 @@ pub fn view(state: &ConflictDialogModel) -> Element<'_, ConflictDialogMessage> {
     let rename_btn = button(
         row![
             icon(icons::ICON_PLUS).size(14).color(colors::BACKGROUND),
-            text(rename_btn_label).size(13).font(styles::BOLD_FONT).color(colors::BACKGROUND),
+            text(rename_btn_label)
+                .size(13)
+                .font(styles::BOLD_FONT)
+                .color(colors::BACKGROUND),
         ]
         .spacing(6)
         .align_y(Alignment::Center),
@@ -253,13 +262,9 @@ pub fn view(state: &ConflictDialogModel) -> Element<'_, ConflictDialogMessage> {
     .on_press(ConflictDialogMessage::AutoRenameChosen);
 
     let buttons_row = if is_duplicate {
-        row![
-            cancel_btn,
-            Space::with_width(Length::Fill),
-            rename_btn,
-        ]
-        .spacing(10)
-        .align_y(Alignment::Center)
+        row![cancel_btn, Space::with_width(Length::Fill), rename_btn,]
+            .spacing(10)
+            .align_y(Alignment::Center)
     } else {
         row![
             cancel_btn,
@@ -271,11 +276,7 @@ pub fn view(state: &ConflictDialogModel) -> Element<'_, ConflictDialogMessage> {
         .align_y(Alignment::Center)
     };
 
-    let mut content_col = column![
-        auto_timer_banner,
-        file_detail_box,
-        question_text,
-    ];
+    let mut content_col = column![auto_timer_banner, file_detail_box, question_text,];
     if !is_duplicate {
         content_col = content_col.push(remember_chk);
     }

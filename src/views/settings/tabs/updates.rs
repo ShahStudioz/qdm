@@ -38,7 +38,9 @@ pub fn view<'a>(
         _ => button(
             row![
                 icon(icons::ICON_RETRY).size(13).color(colors::TEXT_PRIMARY),
-                text("Check for Updates").size(13).color(colors::TEXT_PRIMARY),
+                text("Check for Updates")
+                    .size(13)
+                    .color(colors::TEXT_PRIMARY),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -95,9 +97,12 @@ pub fn view<'a>(
                             .size(13)
                             .font(styles::BOLD_FONT)
                             .color(colors::SUCCESS),
-                        text(format!("Version {} is currently the newest available build.", latest_version))
-                            .size(12)
-                            .color(colors::TEXT_MUTED),
+                        text(format!(
+                            "Version {} is currently the newest available build.",
+                            latest_version
+                        ))
+                        .size(12)
+                        .color(colors::TEXT_MUTED),
                     ]
                     .spacing(2),
                 ]
@@ -107,7 +112,9 @@ pub fn view<'a>(
             .padding([12, 16])
             .width(Length::Fill)
             .style(|_| container::Style {
-                background: Some(iced::Background::Color(iced::Color::from_rgba(0.06, 0.72, 0.50, 0.08))),
+                background: Some(iced::Background::Color(iced::Color::from_rgba(
+                    0.06, 0.72, 0.50, 0.08,
+                ))),
                 border: iced::Border {
                     color: iced::Color::from_rgba(0.06, 0.72, 0.50, 0.3),
                     width: 1.0,
@@ -154,16 +161,25 @@ pub fn view<'a>(
                     ]
                     .spacing(10)
                     .align_y(Alignment::Center),
-                    text(format!("Format: {}{}", info.file_format.to_uppercase(), size_text))
-                        .size(12)
-                        .color(colors::TEXT_MUTED),
+                    text(format!(
+                        "Format: {}{}",
+                        info.file_format.to_uppercase(),
+                        size_text
+                    ))
+                    .size(12)
+                    .color(colors::TEXT_MUTED),
                 ]
                 .spacing(4),
                 Space::with_width(Length::Fill),
                 button(
                     row![
-                        icon(icons::ICON_DOWNLOAD).size(14).color(colors::BACKGROUND),
-                        text("Download Update").size(13).font(styles::BOLD_FONT).color(colors::BACKGROUND),
+                        icon(icons::ICON_DOWNLOAD)
+                            .size(14)
+                            .color(colors::BACKGROUND),
+                        text("Download Update")
+                            .size(13)
+                            .font(styles::BOLD_FONT)
+                            .color(colors::BACKGROUND),
                     ]
                     .spacing(8)
                     .align_y(Alignment::Center),
@@ -181,9 +197,7 @@ pub fn view<'a>(
                             .size(12)
                             .font(styles::BOLD_FONT)
                             .color(colors::TEXT_PRIMARY),
-                        text(&info.changelog)
-                            .size(12)
-                            .color(colors::TEXT_MUTED),
+                        text(&info.changelog).size(12).color(colors::TEXT_MUTED),
                     ]
                     .spacing(6),
                 )
@@ -240,7 +254,11 @@ pub fn view<'a>(
 
             let percent_str = format!("{:.1}%", progress_ratio * 100.0);
             let size_str = if let Some(total) = total_bytes {
-                format!("{} of {}", format_bytes(*downloaded_bytes), format_bytes(*total))
+                format!(
+                    "{} of {}",
+                    format_bytes(*downloaded_bytes),
+                    format_bytes(*total)
+                )
             } else {
                 format_bytes(*downloaded_bytes)
             };
@@ -312,7 +330,11 @@ pub fn view<'a>(
 
             content = content.push(downloading_card);
         }
-        UpdateStatus::ReadyToInstall { info, file_path, file_size } => {
+        UpdateStatus::ReadyToInstall {
+            info,
+            file_path,
+            file_size,
+        } => {
             let ready_card = container(
                 column![
                     row![
@@ -322,16 +344,22 @@ pub fn view<'a>(
                                 .size(15)
                                 .font(styles::BOLD_FONT)
                                 .color(colors::SUCCESS),
-                            text(format!("Installer verified & saved ({})", format_bytes(*file_size)))
-                                .size(12)
-                                .color(colors::TEXT_MUTED),
+                            text(format!(
+                                "Installer verified & saved ({})",
+                                format_bytes(*file_size)
+                            ))
+                            .size(12)
+                            .color(colors::TEXT_MUTED),
                         ]
                         .spacing(2),
                         Space::with_width(Length::Fill),
                         button(
                             row![
                                 icon(icons::ICON_RETRY).size(14).color(colors::BACKGROUND),
-                                text("Install Update & Restart").size(13).font(styles::BOLD_FONT).color(colors::BACKGROUND),
+                                text("Install Update & Restart")
+                                    .size(13)
+                                    .font(styles::BOLD_FONT)
+                                    .color(colors::BACKGROUND),
                             ]
                             .spacing(8)
                             .align_y(Alignment::Center),
@@ -365,7 +393,9 @@ pub fn view<'a>(
             )
             .width(Length::Fill)
             .style(|_| container::Style {
-                background: Some(iced::Background::Color(iced::Color::from_rgba(0.06, 0.72, 0.50, 0.08))),
+                background: Some(iced::Background::Color(iced::Color::from_rgba(
+                    0.06, 0.72, 0.50, 0.08,
+                ))),
                 border: iced::Border {
                     color: iced::Color::from_rgba(0.06, 0.72, 0.50, 0.35),
                     width: 1.0,
@@ -400,7 +430,9 @@ pub fn view<'a>(
             .padding([12, 16])
             .width(Length::Fill)
             .style(|_| container::Style {
-                background: Some(iced::Background::Color(iced::Color::from_rgba(0.93, 0.26, 0.26, 0.10))),
+                background: Some(iced::Background::Color(iced::Color::from_rgba(
+                    0.93, 0.26, 0.26, 0.10,
+                ))),
                 border: iced::Border {
                     color: iced::Color::from_rgba(0.93, 0.26, 0.26, 0.35),
                     width: 1.0,
@@ -413,8 +445,5 @@ pub fn view<'a>(
         }
     }
 
-    content
-        .padding([20, 24])
-        .width(Length::Fill)
-        .into()
+    content.padding([20, 24]).width(Length::Fill).into()
 }

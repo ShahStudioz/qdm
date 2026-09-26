@@ -110,7 +110,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_positional_writes() {
-        let temp_dir = std::env::temp_dir().join(format!("qdm_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "qdm_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let test_file = temp_dir.join("concurrent_write.bin");
 
         let total_size = 4 * 1024 * 1024; // 4MB
@@ -147,7 +153,8 @@ mod tests {
         // Verify disk contents
         let mut file = File::open(&test_file).expect("Failed to open written test file");
         let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).expect("Failed to read test file");
+        file.read_to_end(&mut buffer)
+            .expect("Failed to read test file");
 
         assert_eq!(buffer.len(), total_size);
 

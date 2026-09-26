@@ -140,13 +140,14 @@ mod platform {
             };
 
             rt.block_on(async move {
-                let mut server = match ServerOptions::new()
-                    .first_pipe_instance(true)
-                    .create(&name)
+                let mut server = match ServerOptions::new().first_pipe_instance(true).create(&name)
                 {
                     Ok(s) => s,
                     Err(e) => {
-                        eprintln!("[QDM SingleInstance] Failed to create first pipe instance: {}", e);
+                        eprintln!(
+                            "[QDM SingleInstance] Failed to create first pipe instance: {}",
+                            e
+                        );
                         return;
                     }
                 };
@@ -157,7 +158,10 @@ mod platform {
                         server = match ServerOptions::new().create(&name) {
                             Ok(s) => s,
                             Err(e) => {
-                                eprintln!("[QDM SingleInstance] Failed to create next pipe instance: {}", e);
+                                eprintln!(
+                                    "[QDM SingleInstance] Failed to create next pipe instance: {}",
+                                    e
+                                );
                                 break;
                             }
                         };
@@ -308,7 +312,10 @@ mod tests {
         use tokio::net::windows::named_pipe::{ClientOptions, ServerOptions};
 
         let pipe_name = r"\\.\pipe\qdm-test-single-instance-pipe";
-        let server = ServerOptions::new().first_pipe_instance(true).create(pipe_name).unwrap();
+        let server = ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(pipe_name)
+            .unwrap();
 
         let (tx, mut rx) = broadcast::channel(4);
 
@@ -326,7 +333,10 @@ mod tests {
 
         // Client connects and sends OPEN command
         let mut client = ClientOptions::new().open(pipe_name).unwrap();
-        client.write_all(b"OPEN:https://example.com/test.zip\n").await.unwrap();
+        client
+            .write_all(b"OPEN:https://example.com/test.zip\n")
+            .await
+            .unwrap();
         client.flush().await.unwrap();
 
         let received = rx.recv().await.unwrap();

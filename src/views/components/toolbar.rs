@@ -1,13 +1,10 @@
-use iced::widget::{button, column, container, row, text, text_input, Space};
-use iced::{Alignment, Element, Length};
 use crate::icons::{self, icon};
 use crate::models::download::format_speed_parts;
 use crate::theme::{colors, styles};
+use iced::widget::{button, column, container, row, text, text_input, Space};
+use iced::{Alignment, Element, Length};
 
-fn speed_item<'a, Message>(
-    icon_char: char,
-    bytes_bps: u64,
-) -> Element<'a, Message>
+fn speed_item<'a, Message>(icon_char: char, bytes_bps: u64) -> Element<'a, Message>
 where
     Message: 'a + Clone,
 {
@@ -44,6 +41,7 @@ where
     .into()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn toolbar_view<'a, Message>(
     title: &'a str,
     search_text: &'a str,
@@ -63,7 +61,9 @@ where
         .font(styles::BOLD_FONT)
         .color(colors::TEXT_PRIMARY)
         .wrapping(iced::widget::text::Wrapping::None);
-    let title_container = container(title_text).height(Length::Shrink).align_y(Alignment::Center);
+    let title_container = container(title_text)
+        .height(Length::Shrink)
+        .align_y(Alignment::Center);
 
     let search_icon = icon(icons::ICON_SEARCH).size(14).color(colors::TEXT_MUTED);
     let search_input_widget = text_input("Search downloads...", search_text)
@@ -75,7 +75,7 @@ where
     let search_bar = container(
         row![search_icon, search_input_widget]
             .spacing(6)
-            .align_y(Alignment::Center)
+            .align_y(Alignment::Center),
     )
     .width(Length::FillPortion(3))
     .max_width(320.0)
@@ -102,8 +102,14 @@ where
     .width(Length::Fixed(64.0))
     .align_x(Alignment::End);
 
-    let dot1 = text("·").size(12).font(styles::BOLD_FONT).color(colors::TEXT_MUTED);
-    let dot2 = text("·").size(12).font(styles::BOLD_FONT).color(colors::TEXT_MUTED);
+    let dot1 = text("·")
+        .size(12)
+        .font(styles::BOLD_FONT)
+        .color(colors::TEXT_MUTED);
+    let dot2 = text("·")
+        .size(12)
+        .font(styles::BOLD_FONT)
+        .color(colors::TEXT_MUTED);
 
     let metric_val = row![
         active_widget,
@@ -118,7 +124,9 @@ where
     ]
     .align_y(Alignment::Center);
 
-    let speed_badge = column![metric_header, metric_val].spacing(1).align_x(Alignment::End);
+    let speed_badge = column![metric_header, metric_val]
+        .spacing(1)
+        .align_x(Alignment::End);
 
     let add_icon = icon(icons::ICON_PLUS).size(14).color(colors::BACKGROUND);
     let add_text = text("Add URL")
@@ -130,7 +138,7 @@ where
     let add_button = button(
         row![add_icon, add_text]
             .spacing(8)
-            .align_y(Alignment::Center)
+            .align_y(Alignment::Center),
     )
     .padding([8, 16])
     .style(styles::primary_button_style)
@@ -145,7 +153,13 @@ where
         });
 
     let menu_btn = button(
-        icon(icons::ICON_ELLIPSIS_V).size(16).color(if is_menu_open { colors::PRIMARY } else { colors::TEXT_MUTED })
+        icon(icons::ICON_ELLIPSIS_V)
+            .size(16)
+            .color(if is_menu_open {
+                colors::PRIMARY
+            } else {
+                colors::TEXT_MUTED
+            }),
     )
     .padding([8, 10])
     .style(styles::icon_button_style)

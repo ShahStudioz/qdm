@@ -55,6 +55,7 @@ fn default_update_api_url() -> String {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[allow(clippy::enum_variant_names)]
 pub enum SpeedUnit {
     #[default]
     KBps,
@@ -73,7 +74,7 @@ impl SpeedUnit {
         }
     }
 
-    pub fn to_bps(&self, val: u64) -> u64 {
+    pub fn to_bps(self, val: u64) -> u64 {
         match self {
             SpeedUnit::KBps => val * 1024,
             SpeedUnit::MBps => val * 1024 * 1024,

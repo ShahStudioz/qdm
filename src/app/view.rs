@@ -9,7 +9,9 @@ use crate::icons::{self, icon};
 use crate::models::download::DownloadState;
 use crate::theme::{colors, styles};
 use crate::views::components::{sidebar, title_bar, toolbar};
-use crate::views::dialogues::{add_dialogue, conflict_dialogue, delete_dialogue, detail_dialogue, mirror_dialogue};
+use crate::views::dialogues::{
+    add_dialogue, conflict_dialogue, delete_dialogue, detail_dialogue, mirror_dialogue,
+};
 use crate::views::downloads::download_list::download_list_view;
 use crate::views::settings::settings;
 use iced::widget::{column, container, row, stack, text};
@@ -73,9 +75,7 @@ impl QdmApp {
             .iter()
             .filter(|d| !d.download_type.is_update())
             .filter_map(|d| match &d.state {
-                DownloadState::Downloading { .. } => {
-                    d.torrent_meta().map(|t| t.upload_speed_bps)
-                }
+                DownloadState::Downloading { .. } => d.torrent_meta().map(|t| t.upload_speed_bps),
                 _ => None,
             })
             .sum();
@@ -227,8 +227,10 @@ impl QdmApp {
 
         // --- Modal overlays (highest priority on top of main content area) ---
         let main_area: Element<Message> = if self.update_conflict_dialog.is_open {
-            let conflict_modal = crate::views::dialogues::update_conflict_dialogue::view(&self.update_conflict_dialog)
-                .map(Message::UpdateConflictMessages);
+            let conflict_modal = crate::views::dialogues::update_conflict_dialogue::view(
+                &self.update_conflict_dialog,
+            )
+            .map(Message::UpdateConflictMessages);
             stack![root_layout, conflict_modal]
                 .width(Length::Fill)
                 .height(Length::Fill)
@@ -262,9 +264,13 @@ impl QdmApp {
                 .height(Length::Fill)
                 .into()
         } else if self.detail_dialog.is_open {
-            if let Some(item) = self.downloads.iter().find(|d| d.id == self.detail_dialog.download_id) {
-                let detail_modal =
-                    detail_dialogue::view(&self.detail_dialog, item).map(Message::DetailDialogueMessages);
+            if let Some(item) = self
+                .downloads
+                .iter()
+                .find(|d| d.id == self.detail_dialog.download_id)
+            {
+                let detail_modal = detail_dialogue::view(&self.detail_dialog, item)
+                    .map(Message::DetailDialogueMessages);
                 stack![root_layout, detail_modal]
                     .width(Length::Fill)
                     .height(Length::Fill)
@@ -289,7 +295,11 @@ impl QdmApp {
                 border: iced::Border {
                     color: colors::BORDER,
                     width: if self.is_maximized { 0.0 } else { 1.0 },
-                    radius: if self.is_maximized { 0.0.into() } else { 8.0.into() },
+                    radius: if self.is_maximized {
+                        0.0.into()
+                    } else {
+                        8.0.into()
+                    },
                 },
                 ..Default::default()
             })

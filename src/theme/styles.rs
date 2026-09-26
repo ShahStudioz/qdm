@@ -138,7 +138,7 @@ pub fn ghost_button_style(_theme: &Theme, status: button::Status) -> button::Sty
         background: bg,
         text_color: colors::TEXT_PRIMARY,
         shadow: Shadow::default(),
-        border: border,
+        border,
     }
 }
 
@@ -277,7 +277,7 @@ pub fn scrollable_style(
     let scroller_color = match status {
         iced::widget::scrollable::Status::Hovered { .. }
         | iced::widget::scrollable::Status::Dragged { .. } => colors::PRIMARY_HOVER,
-        iced::widget::scrollable::Status::Active { .. } => colors::PRIMARY,
+        iced::widget::scrollable::Status::Active => colors::PRIMARY,
     };
 
     iced::widget::scrollable::Style {

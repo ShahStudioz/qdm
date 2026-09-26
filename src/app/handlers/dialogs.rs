@@ -8,7 +8,9 @@
 use crate::app::{Message, QdmApp};
 use crate::models::download::{DownloadItem, DownloadState, FileType};
 use crate::services::shared::storage;
-use crate::views::dialogues::{add_dialogue, conflict_dialogue, delete_dialogue, detail_dialogue, mirror_dialogue};
+use crate::views::dialogues::{
+    add_dialogue, conflict_dialogue, delete_dialogue, detail_dialogue, mirror_dialogue,
+};
 use crate::views::settings::settings;
 use iced::Task;
 
@@ -72,17 +74,14 @@ pub(crate) fn handle_add_dialog_message(
     msg: add_dialogue::AddDialogueModalMessage,
 ) -> Task<Message> {
     match msg {
-        add_dialogue::AddDialogueModalMessage::SubmitNewDownload => {
-            handle_submit_new_download(app)
-        }
-        add_dialogue::AddDialogueModalMessage::QuickAddDownload => {
-            handle_quick_add_download(app)
-        }
+        add_dialogue::AddDialogueModalMessage::SubmitNewDownload => handle_submit_new_download(app),
+        add_dialogue::AddDialogueModalMessage::QuickAddDownload => handle_quick_add_download(app),
         add_dialogue::AddDialogueModalMessage::ScheduleNewDownload => {
             handle_schedule_new_download(app)
         }
-        other => add_dialogue::update(&mut app.add_dialog, other)
-            .map(Message::AddDialogueModalMessages),
+        other => {
+            add_dialogue::update(&mut app.add_dialog, other).map(Message::AddDialogueModalMessages)
+        }
     }
 }
 
@@ -132,10 +131,13 @@ fn find_existing_download<'a>(
         }
 
         // 2. Check destination file/folder match
-        if !filename.is_empty() && filename != "download.file" && filename != "Torrent Download" {
-            if d.save_path == save_path && d.filename.eq_ignore_ascii_case(filename) {
-                return true;
-            }
+        if !filename.is_empty()
+            && filename != "download.file"
+            && filename != "Torrent Download"
+            && d.save_path == save_path
+            && d.filename.eq_ignore_ascii_case(filename)
+        {
+            return true;
         }
 
         false
@@ -169,18 +171,29 @@ fn handle_submit_new_download(app: &mut QdmApp) -> Task<Message> {
     let save_path = app.add_dialog.save_to.clone();
     let parsed_mirrors = app.add_dialog.parsed_mirrors();
     let probe = app.add_dialog.probe_result.clone();
-    
+
     let (total_bytes, download_type, has_media, is_torrent_folder) = match probe {
         Some(crate::services::engine::ProbeResult::Http(m)) => {
-            let dt = crate::models::download::DownloadType::Http(crate::models::download::HttpMetadata {
-                primary_url: crate::models::download::DownloadUrl::new(&url),
-                mirror_urls: parsed_mirrors.iter().map(|u| crate::models::download::DownloadUrl::new(u)).collect(),
-                resumable: m.supports_resume,
-                etag: None,
-                last_modified: None,
-                chunks: Vec::new(),
-            });
-            (m.content_length, dt, crate::models::download::FileType::from_filename(&filename) == crate::models::download::FileType::Media, false)
+            let dt = crate::models::download::DownloadType::Http(
+                crate::models::download::HttpMetadata {
+                    primary_url: crate::models::download::DownloadUrl::new(&url),
+                    mirror_urls: parsed_mirrors
+                        .iter()
+                        .map(crate::models::download::DownloadUrl::new)
+                        .collect(),
+                    resumable: m.supports_resume,
+                    etag: None,
+                    last_modified: None,
+                    chunks: Vec::new(),
+                },
+            );
+            (
+                m.content_length,
+                dt,
+                crate::models::download::FileType::from_filename(&filename)
+                    == crate::models::download::FileType::Media,
+                false,
+            )
         }
         Some(crate::services::engine::ProbeResult::Torrent(info)) => {
             let selected: Vec<usize> = app.add_dialog.selected_files.iter().copied().collect();
@@ -189,46 +202,65 @@ fn handle_submit_new_download(app: &mut QdmApp) -> Task<Message> {
             for f in &info.files {
                 if selected.is_empty() || selected.contains(&f.id) {
                     total += f.size;
-                    if crate::models::download::FileType::from_filename(&f.path) == crate::models::download::FileType::Media {
+                    if crate::models::download::FileType::from_filename(&f.path)
+                        == crate::models::download::FileType::Media
+                    {
                         has_media = true;
                     }
                 }
             }
             let is_folder = info.files.len() > 1;
-            let dt = crate::models::download::DownloadType::Torrent(crate::models::download::TorrentMetadata {
-                magnet_uri: url.clone(),
-                info_hash: Some(String::new()),
-                peers_connected: 0,
-                seeds_connected: 0,
-                upload_speed_bps: 0,
-                is_folder,
-                selected_files: if selected.is_empty() { None } else { Some(selected) },
-            });
-            (Some(total), dt, has_media, is_folder)
-        }
-        None => {
-            let is_torrent = crate::core::utils::paths::is_torrent_target(&url);
-            let dt = if is_torrent {
-                crate::models::download::DownloadType::Torrent(crate::models::download::TorrentMetadata {
+            let dt = crate::models::download::DownloadType::Torrent(
+                crate::models::download::TorrentMetadata {
                     magnet_uri: url.clone(),
                     info_hash: Some(String::new()),
                     peers_connected: 0,
                     seeds_connected: 0,
                     upload_speed_bps: 0,
-                    is_folder: false,
-                    selected_files: None,
-                })
+                    is_folder,
+                    selected_files: if selected.is_empty() {
+                        None
+                    } else {
+                        Some(selected)
+                    },
+                },
+            );
+            (Some(total), dt, has_media, is_folder)
+        }
+        None => {
+            let is_torrent = crate::core::utils::paths::is_torrent_target(&url);
+            let dt = if is_torrent {
+                crate::models::download::DownloadType::Torrent(
+                    crate::models::download::TorrentMetadata {
+                        magnet_uri: url.clone(),
+                        info_hash: Some(String::new()),
+                        peers_connected: 0,
+                        seeds_connected: 0,
+                        upload_speed_bps: 0,
+                        is_folder: false,
+                        selected_files: None,
+                    },
+                )
             } else {
                 crate::models::download::DownloadType::Http(crate::models::download::HttpMetadata {
                     primary_url: crate::models::download::DownloadUrl::new(&url),
-                    mirror_urls: parsed_mirrors.iter().map(|u| crate::models::download::DownloadUrl::new(u)).collect(),
+                    mirror_urls: parsed_mirrors
+                        .iter()
+                        .map(crate::models::download::DownloadUrl::new)
+                        .collect(),
                     resumable: false,
                     etag: None,
                     last_modified: None,
                     chunks: Vec::new(),
                 })
             };
-            (None, dt, crate::models::download::FileType::from_filename(&filename) == crate::models::download::FileType::Media, false)
+            (
+                None,
+                dt,
+                crate::models::download::FileType::from_filename(&filename)
+                    == crate::models::download::FileType::Media,
+                false,
+            )
         }
     };
 
@@ -325,28 +357,44 @@ fn handle_quick_add_download(app: &mut QdmApp) -> Task<Message> {
     let save_path = app.add_dialog.save_to.clone();
     let speed_limit_bps = app.settings.global_speed_limit_bps();
 
-    let (mut filename, total_bytes, dt, has_media, state, is_torrent_folder) = match &app.add_dialog.probe_result {
+    let (mut filename, total_bytes, dt, has_media, state, is_torrent_folder) = match &app
+        .add_dialog
+        .probe_result
+    {
         Some(crate::services::engine::ProbeResult::Http(m)) => {
             let fname = if !app.add_dialog.filename.trim().is_empty() {
                 crate::core::utils::paths::sanitize_filename(app.add_dialog.filename.trim())
             } else {
                 add_dialogue::extract_filename(&url, m.content_disposition.as_deref())
             };
-            let has_media = crate::models::download::FileType::from_filename(&fname) == crate::models::download::FileType::Media;
-            let dt = crate::models::download::DownloadType::Http(crate::models::download::HttpMetadata {
-                primary_url: crate::models::download::DownloadUrl::new(&url),
-                mirror_urls: parsed_mirrors.iter().map(|u| crate::models::download::DownloadUrl::new(u)).collect(),
-                resumable: m.supports_resume,
-                etag: None,
-                last_modified: None,
-                chunks: Vec::new(),
-            });
-            (fname, m.content_length, dt, has_media, DownloadState::Downloading {
-                downloaded_bytes: 0,
-                total_bytes: m.content_length,
-                speed_bps: 0,
-                eta_secs: None,
-            }, false)
+            let has_media = crate::models::download::FileType::from_filename(&fname)
+                == crate::models::download::FileType::Media;
+            let dt = crate::models::download::DownloadType::Http(
+                crate::models::download::HttpMetadata {
+                    primary_url: crate::models::download::DownloadUrl::new(&url),
+                    mirror_urls: parsed_mirrors
+                        .iter()
+                        .map(crate::models::download::DownloadUrl::new)
+                        .collect(),
+                    resumable: m.supports_resume,
+                    etag: None,
+                    last_modified: None,
+                    chunks: Vec::new(),
+                },
+            );
+            (
+                fname,
+                m.content_length,
+                dt,
+                has_media,
+                DownloadState::Downloading {
+                    downloaded_bytes: 0,
+                    total_bytes: m.content_length,
+                    speed_bps: 0,
+                    eta_secs: None,
+                },
+                false,
+            )
         }
         Some(crate::services::engine::ProbeResult::Torrent(info)) => {
             let fname = if !app.add_dialog.filename.trim().is_empty() {
@@ -358,26 +406,37 @@ fn handle_quick_add_download(app: &mut QdmApp) -> Task<Message> {
             let mut has_media = false;
             for f in &info.files {
                 total += f.size;
-                if crate::models::download::FileType::from_filename(&f.path) == crate::models::download::FileType::Media {
+                if crate::models::download::FileType::from_filename(&f.path)
+                    == crate::models::download::FileType::Media
+                {
                     has_media = true;
                 }
             }
             let is_folder = info.files.len() > 1;
-            let dt = crate::models::download::DownloadType::Torrent(crate::models::download::TorrentMetadata {
-                magnet_uri: url.clone(),
-                info_hash: Some(String::new()),
-                peers_connected: 0,
-                seeds_connected: 0,
-                upload_speed_bps: 0,
+            let dt = crate::models::download::DownloadType::Torrent(
+                crate::models::download::TorrentMetadata {
+                    magnet_uri: url.clone(),
+                    info_hash: Some(String::new()),
+                    peers_connected: 0,
+                    seeds_connected: 0,
+                    upload_speed_bps: 0,
+                    is_folder,
+                    selected_files: None,
+                },
+            );
+            (
+                fname,
+                Some(total),
+                dt,
+                has_media,
+                DownloadState::Downloading {
+                    downloaded_bytes: 0,
+                    total_bytes: Some(total),
+                    speed_bps: 0,
+                    eta_secs: None,
+                },
                 is_folder,
-                selected_files: None,
-            });
-            (fname, Some(total), dt, has_media, DownloadState::Downloading {
-                downloaded_bytes: 0,
-                total_bytes: Some(total),
-                speed_bps: 0,
-                eta_secs: None,
-            }, is_folder)
+            )
         }
         None => {
             let fname = if !app.add_dialog.filename.trim().is_empty() {
@@ -385,28 +444,41 @@ fn handle_quick_add_download(app: &mut QdmApp) -> Task<Message> {
             } else {
                 add_dialogue::extract_filename(&url, None)
             };
-            let has_media = crate::models::download::FileType::from_filename(&fname) == crate::models::download::FileType::Media;
+            let has_media = crate::models::download::FileType::from_filename(&fname)
+                == crate::models::download::FileType::Media;
             let dt = if crate::core::utils::paths::is_torrent_target(&url) {
-                crate::models::download::DownloadType::Torrent(crate::models::download::TorrentMetadata {
-                    magnet_uri: url.clone(),
-                    info_hash: Some(String::new()),
-                    peers_connected: 0,
-                    seeds_connected: 0,
-                    upload_speed_bps: 0,
-                    is_folder: false,
-                    selected_files: None,
-                })
+                crate::models::download::DownloadType::Torrent(
+                    crate::models::download::TorrentMetadata {
+                        magnet_uri: url.clone(),
+                        info_hash: Some(String::new()),
+                        peers_connected: 0,
+                        seeds_connected: 0,
+                        upload_speed_bps: 0,
+                        is_folder: false,
+                        selected_files: None,
+                    },
+                )
             } else {
                 crate::models::download::DownloadType::Http(crate::models::download::HttpMetadata {
                     primary_url: crate::models::download::DownloadUrl::new(&url),
-                    mirror_urls: parsed_mirrors.iter().map(|u| crate::models::download::DownloadUrl::new(u)).collect(),
+                    mirror_urls: parsed_mirrors
+                        .iter()
+                        .map(crate::models::download::DownloadUrl::new)
+                        .collect(),
                     resumable: false,
                     etag: None,
                     last_modified: None,
                     chunks: Vec::new(),
                 })
             };
-            (fname, None, dt, has_media, DownloadState::FetchingMetadata, false)
+            (
+                fname,
+                None,
+                dt,
+                has_media,
+                DownloadState::FetchingMetadata,
+                false,
+            )
         }
     };
 
@@ -500,18 +572,29 @@ fn handle_schedule_new_download(app: &mut QdmApp) -> Task<Message> {
     let save_path = app.add_dialog.save_to.clone();
     let parsed_mirrors = app.add_dialog.parsed_mirrors();
     let probe = app.add_dialog.probe_result.clone();
-    
+
     let (total_bytes, download_type, has_media, is_torrent_folder) = match probe {
         Some(crate::services::engine::ProbeResult::Http(m)) => {
-            let dt = crate::models::download::DownloadType::Http(crate::models::download::HttpMetadata {
-                primary_url: crate::models::download::DownloadUrl::new(&url),
-                mirror_urls: parsed_mirrors.iter().map(|u| crate::models::download::DownloadUrl::new(u)).collect(),
-                resumable: m.supports_resume,
-                etag: None,
-                last_modified: None,
-                chunks: Vec::new(),
-            });
-            (m.content_length, dt, crate::models::download::FileType::from_filename(&filename) == crate::models::download::FileType::Media, false)
+            let dt = crate::models::download::DownloadType::Http(
+                crate::models::download::HttpMetadata {
+                    primary_url: crate::models::download::DownloadUrl::new(&url),
+                    mirror_urls: parsed_mirrors
+                        .iter()
+                        .map(crate::models::download::DownloadUrl::new)
+                        .collect(),
+                    resumable: m.supports_resume,
+                    etag: None,
+                    last_modified: None,
+                    chunks: Vec::new(),
+                },
+            );
+            (
+                m.content_length,
+                dt,
+                crate::models::download::FileType::from_filename(&filename)
+                    == crate::models::download::FileType::Media,
+                false,
+            )
         }
         Some(crate::services::engine::ProbeResult::Torrent(info)) => {
             let selected: Vec<usize> = app.add_dialog.selected_files.iter().copied().collect();
@@ -520,46 +603,65 @@ fn handle_schedule_new_download(app: &mut QdmApp) -> Task<Message> {
             for f in &info.files {
                 if selected.is_empty() || selected.contains(&f.id) {
                     total += f.size;
-                    if crate::models::download::FileType::from_filename(&f.path) == crate::models::download::FileType::Media {
+                    if crate::models::download::FileType::from_filename(&f.path)
+                        == crate::models::download::FileType::Media
+                    {
                         has_media = true;
                     }
                 }
             }
             let is_folder = info.files.len() > 1;
-            let dt = crate::models::download::DownloadType::Torrent(crate::models::download::TorrentMetadata {
-                magnet_uri: url.clone(),
-                info_hash: Some(String::new()),
-                peers_connected: 0,
-                seeds_connected: 0,
-                upload_speed_bps: 0,
-                is_folder,
-                selected_files: if selected.is_empty() { None } else { Some(selected) },
-            });
-            (Some(total), dt, has_media, is_folder)
-        }
-        None => {
-            let is_torrent = crate::core::utils::paths::is_torrent_target(&url);
-            let dt = if is_torrent {
-                crate::models::download::DownloadType::Torrent(crate::models::download::TorrentMetadata {
+            let dt = crate::models::download::DownloadType::Torrent(
+                crate::models::download::TorrentMetadata {
                     magnet_uri: url.clone(),
                     info_hash: Some(String::new()),
                     peers_connected: 0,
                     seeds_connected: 0,
                     upload_speed_bps: 0,
-                    is_folder: false,
-                    selected_files: None,
-                })
+                    is_folder,
+                    selected_files: if selected.is_empty() {
+                        None
+                    } else {
+                        Some(selected)
+                    },
+                },
+            );
+            (Some(total), dt, has_media, is_folder)
+        }
+        None => {
+            let is_torrent = crate::core::utils::paths::is_torrent_target(&url);
+            let dt = if is_torrent {
+                crate::models::download::DownloadType::Torrent(
+                    crate::models::download::TorrentMetadata {
+                        magnet_uri: url.clone(),
+                        info_hash: Some(String::new()),
+                        peers_connected: 0,
+                        seeds_connected: 0,
+                        upload_speed_bps: 0,
+                        is_folder: false,
+                        selected_files: None,
+                    },
+                )
             } else {
                 crate::models::download::DownloadType::Http(crate::models::download::HttpMetadata {
                     primary_url: crate::models::download::DownloadUrl::new(&url),
-                    mirror_urls: parsed_mirrors.iter().map(|u| crate::models::download::DownloadUrl::new(u)).collect(),
+                    mirror_urls: parsed_mirrors
+                        .iter()
+                        .map(crate::models::download::DownloadUrl::new)
+                        .collect(),
                     resumable: false,
                     etag: None,
                     last_modified: None,
                     chunks: Vec::new(),
                 })
             };
-            (None, dt, crate::models::download::FileType::from_filename(&filename) == crate::models::download::FileType::Media, false)
+            (
+                None,
+                dt,
+                crate::models::download::FileType::from_filename(&filename)
+                    == crate::models::download::FileType::Media,
+                false,
+            )
         }
     };
 
@@ -711,8 +813,7 @@ pub(crate) fn handle_conflict_dialog_message(
         }
         conflict_dialogue::ConflictDialogMessage::AutoRenameChosen => {
             if app.conflict_dialog.remember_choice {
-                app.settings.file_conflict_action =
-                    Some(settings::FileConflictAction::AutoRename);
+                app.settings.file_conflict_action = Some(settings::FileConflictAction::AutoRename);
                 let _ = storage::json_store::save_settings(&app.settings);
             }
             if let Some(pending) = app.conflict_dialog.pending.take() {
@@ -722,7 +823,10 @@ pub(crate) fn handle_conflict_dialog_message(
                         &pending.filename,
                     );
                     let mut counter = 1u32;
-                    while app.downloads.iter().any(|d| d.save_path == pending.save_to && d.filename.eq_ignore_ascii_case(&candidate)) {
+                    while app.downloads.iter().any(|d| {
+                        d.save_path == pending.save_to
+                            && d.filename.eq_ignore_ascii_case(&candidate)
+                    }) {
                         candidate = format!("{} ({})", pending.filename, counter);
                         counter += 1;
                     }
@@ -733,10 +837,16 @@ pub(crate) fn handle_conflict_dialog_message(
                         &pending.filename,
                     );
                     let path = std::path::Path::new(&pending.filename);
-                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("download");
+                    let stem = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("download");
                     let ext = path.extension().and_then(|s| s.to_str());
                     let mut counter = 1u32;
-                    while app.downloads.iter().any(|d| d.save_path == pending.save_to && d.filename.eq_ignore_ascii_case(&candidate)) {
+                    while app.downloads.iter().any(|d| {
+                        d.save_path == pending.save_to
+                            && d.filename.eq_ignore_ascii_case(&candidate)
+                    }) {
                         candidate = match ext {
                             Some(extension) => format!("{} ({}).{}", stem, counter, extension),
                             None => format!("{} ({})", stem, counter),
@@ -749,24 +859,32 @@ pub(crate) fn handle_conflict_dialog_message(
                 let dt = if let Some(existing_dt) = pending.download_type {
                     existing_dt
                 } else if crate::core::utils::paths::is_torrent_target(&pending.url) {
-                    crate::models::download::DownloadType::Torrent(crate::models::download::TorrentMetadata {
-                        magnet_uri: pending.url.clone(),
-                        info_hash: Some(String::new()),
-                        peers_connected: 0,
-                        seeds_connected: 0,
-                        upload_speed_bps: 0,
-                        is_folder: pending.is_torrent_folder,
-                        selected_files: None,
-                    })
+                    crate::models::download::DownloadType::Torrent(
+                        crate::models::download::TorrentMetadata {
+                            magnet_uri: pending.url.clone(),
+                            info_hash: Some(String::new()),
+                            peers_connected: 0,
+                            seeds_connected: 0,
+                            upload_speed_bps: 0,
+                            is_folder: pending.is_torrent_folder,
+                            selected_files: None,
+                        },
+                    )
                 } else {
-                    crate::models::download::DownloadType::Http(crate::models::download::HttpMetadata {
-                        primary_url: crate::models::download::DownloadUrl::new(&pending.url),
-                        mirror_urls: pending.mirror_urls.iter().map(|u| crate::models::download::DownloadUrl::new(u)).collect(),
-                        resumable: false,
-                        etag: None,
-                        last_modified: None,
-                        chunks: Vec::new(),
-                    })
+                    crate::models::download::DownloadType::Http(
+                        crate::models::download::HttpMetadata {
+                            primary_url: crate::models::download::DownloadUrl::new(&pending.url),
+                            mirror_urls: pending
+                                .mirror_urls
+                                .iter()
+                                .map(crate::models::download::DownloadUrl::new)
+                                .collect(),
+                            resumable: false,
+                            etag: None,
+                            last_modified: None,
+                            chunks: Vec::new(),
+                        },
+                    )
                 };
 
                 let state = if pending.total_bytes.is_some() {
@@ -780,7 +898,8 @@ pub(crate) fn handle_conflict_dialog_message(
                     DownloadState::FetchingMetadata
                 };
 
-                let has_media = crate::models::download::FileType::from_filename(&new_filename) == crate::models::download::FileType::Media;
+                let has_media = crate::models::download::FileType::from_filename(&new_filename)
+                    == crate::models::download::FileType::Media;
                 let new_item = build_download_item(NewDownloadParams {
                     _url: pending.url.clone(),
                     filename: new_filename,
@@ -805,32 +924,39 @@ pub(crate) fn handle_conflict_dialog_message(
         }
         conflict_dialogue::ConflictDialogMessage::OverwriteChosen => {
             if app.conflict_dialog.remember_choice {
-                app.settings.file_conflict_action =
-                    Some(settings::FileConflictAction::Overwrite);
+                app.settings.file_conflict_action = Some(settings::FileConflictAction::Overwrite);
                 let _ = storage::json_store::save_settings(&app.settings);
             }
             if let Some(pending) = app.conflict_dialog.pending.take() {
                 let dt = if let Some(existing_dt) = pending.download_type {
                     existing_dt
                 } else if crate::core::utils::paths::is_torrent_target(&pending.url) {
-                    crate::models::download::DownloadType::Torrent(crate::models::download::TorrentMetadata {
-                        magnet_uri: pending.url.clone(),
-                        info_hash: Some(String::new()),
-                        peers_connected: 0,
-                        seeds_connected: 0,
-                        upload_speed_bps: 0,
-                        is_folder: pending.is_torrent_folder,
-                        selected_files: None,
-                    })
+                    crate::models::download::DownloadType::Torrent(
+                        crate::models::download::TorrentMetadata {
+                            magnet_uri: pending.url.clone(),
+                            info_hash: Some(String::new()),
+                            peers_connected: 0,
+                            seeds_connected: 0,
+                            upload_speed_bps: 0,
+                            is_folder: pending.is_torrent_folder,
+                            selected_files: None,
+                        },
+                    )
                 } else {
-                    crate::models::download::DownloadType::Http(crate::models::download::HttpMetadata {
-                        primary_url: crate::models::download::DownloadUrl::new(&pending.url),
-                        mirror_urls: pending.mirror_urls.iter().map(|u| crate::models::download::DownloadUrl::new(u)).collect(),
-                        resumable: false,
-                        etag: None,
-                        last_modified: None,
-                        chunks: Vec::new(),
-                    })
+                    crate::models::download::DownloadType::Http(
+                        crate::models::download::HttpMetadata {
+                            primary_url: crate::models::download::DownloadUrl::new(&pending.url),
+                            mirror_urls: pending
+                                .mirror_urls
+                                .iter()
+                                .map(crate::models::download::DownloadUrl::new)
+                                .collect(),
+                            resumable: false,
+                            etag: None,
+                            last_modified: None,
+                            chunks: Vec::new(),
+                        },
+                    )
                 };
 
                 let state = if pending.total_bytes.is_some() {
@@ -844,7 +970,8 @@ pub(crate) fn handle_conflict_dialog_message(
                     DownloadState::FetchingMetadata
                 };
 
-                let has_media = crate::models::download::FileType::from_filename(&pending.filename) == crate::models::download::FileType::Media;
+                let has_media = crate::models::download::FileType::from_filename(&pending.filename)
+                    == crate::models::download::FileType::Media;
                 let new_item = build_download_item(NewDownloadParams {
                     _url: pending.url.clone(),
                     filename: pending.filename.clone(),
@@ -922,13 +1049,13 @@ pub(crate) fn handle_delete_dialog_message(
                 let cancel_task = Task::perform(
                     async move {
                         engine.cancel(pending.id).await;
-                        let target = std::path::Path::new(&pending.save_path)
-                            .join(&pending.filename);
+                        let target =
+                            std::path::Path::new(&pending.save_path).join(&pending.filename);
                         let temp_target = std::path::Path::new(&pending.save_path)
                             .join(format!("{}.qdmdownload", pending.filename));
                         let staging_dir = std::path::Path::new(&pending.save_path)
                             .join(format!(".qdmdownload_{}", pending.id));
-                            
+
                         let paths_to_remove = [target, temp_target, staging_dir];
                         for path in &paths_to_remove {
                             if path.exists() {
@@ -1040,13 +1167,27 @@ mod tests {
 
         // Matching info hash even with different query params or tracker order
         let duplicate_magnet = "magnet:?tr=udp://tracker.opentrackr.org:1337&xt=urn:btih:c12fe1c06bba254a9dc9f519b335380dc1d7d1ee";
-        assert!(find_existing_download(&app, duplicate_magnet, "C:\\Downloads", "archlinux.iso").is_some());
+        assert!(
+            find_existing_download(&app, duplicate_magnet, "C:\\Downloads", "archlinux.iso")
+                .is_some()
+        );
 
         // Matching save_path and filename
-        assert!(find_existing_download(&app, "http://example.com/archlinux.iso", "C:\\Downloads", "archlinux.iso").is_some());
+        assert!(find_existing_download(
+            &app,
+            "http://example.com/archlinux.iso",
+            "C:\\Downloads",
+            "archlinux.iso"
+        )
+        .is_some());
 
         // Non-duplicate
-        assert!(find_existing_download(&app, "http://example.com/ubuntu.iso", "C:\\Downloads", "ubuntu.iso").is_none());
+        assert!(find_existing_download(
+            &app,
+            "http://example.com/ubuntu.iso",
+            "C:\\Downloads",
+            "ubuntu.iso"
+        )
+        .is_none());
     }
 }
-

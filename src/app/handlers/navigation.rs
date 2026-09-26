@@ -136,11 +136,10 @@ pub(crate) fn handle_settings_message(
                 if std::path::Path::new(&current_folder).exists() {
                     dialog = dialog.set_directory(&current_folder);
                 }
-                if let Some(folder) = dialog.pick_folder().await {
-                    Some(folder.path().to_string_lossy().to_string())
-                } else {
-                    None
-                }
+                dialog
+                    .pick_folder()
+                    .await
+                    .map(|folder| folder.path().to_string_lossy().to_string())
             };
             Task::perform(task, |res| {
                 Message::SettingsMessage(settings::SettingsMessage::BrowseFolderResult(res))
@@ -161,22 +160,25 @@ pub(crate) fn handle_settings_message(
         // Simultaneous download count changes require queue re-synchronization
         settings::SettingsMessage::SimultaneousDownloadsInc
         | settings::SettingsMessage::SimultaneousDownloadsDec => {
-            settings::update(
-                &mut app.settings,
-                msg,
-            );
+            settings::update(&mut app.settings, msg);
             app.synchronize_and_persist_queue()
         }
 
         // Torrent play media toggle requires restarting active torrents
         // so their files can be moved in/out of staging dynamically
         settings::SettingsMessage::ToggleTorrentPlayMedia(val) => {
-            settings::update(&mut app.settings, settings::SettingsMessage::ToggleTorrentPlayMedia(val));
-            
+            settings::update(
+                &mut app.settings,
+                settings::SettingsMessage::ToggleTorrentPlayMedia(val),
+            );
+
             // Queue active torrents for restart
             let mut tasks = Vec::new();
             for item in app.downloads.iter() {
-                if matches!(item.state, crate::models::download::DownloadState::Downloading { .. }) {
+                if matches!(
+                    item.state,
+                    crate::models::download::DownloadState::Downloading { .. }
+                ) {
                     if let crate::models::download::DownloadType::Torrent(_) = item.download_type {
                         let id = item.id;
                         let engine = app.engine.clone();
@@ -196,18 +198,10 @@ pub(crate) fn handle_settings_message(
             Task::batch(tasks)
         }
 
-        settings::SettingsMessage::CheckUpdatesPressed => {
-            handle_check_for_updates(app)
-        }
-        settings::SettingsMessage::StartUpdateDownload => {
-            handle_start_update_download(app)
-        }
-        settings::SettingsMessage::CancelUpdateDownload => {
-            handle_cancel_update_download(app)
-        }
-        settings::SettingsMessage::InstallUpdatePressed => {
-            handle_install_update_clicked(app)
-        }
+        settings::SettingsMessage::CheckUpdatesPressed => handle_check_for_updates(app),
+        settings::SettingsMessage::StartUpdateDownload => handle_start_update_download(app),
+        settings::SettingsMessage::CancelUpdateDownload => handle_cancel_update_download(app),
+        settings::SettingsMessage::InstallUpdatePressed => handle_install_update_clicked(app),
 
         // All other settings messages are handled generically
         other => {
@@ -227,7 +221,8 @@ pub(crate) fn handle_check_for_updates(app: &mut QdmApp) -> Task<Message> {
     let api_url = app.settings.update_api_url.clone();
     Task::perform(
         async move {
-            crate::services::updater::check_for_updates(&api_url, crate::core::version::APP_VERSION).await
+            crate::services::updater::check_for_updates(&api_url, crate::core::version::APP_VERSION)
+                .await
         },
         Message::UpdateCheckResult,
     )
@@ -259,12 +254,14 @@ pub(crate) fn handle_update_check_result(
                             true
                         };
                         if hash_valid {
-                            let _ = crate::services::updater::save_cached_update(&info, &target_file);
-                            app.update_status = crate::services::updater::UpdateStatus::ReadyToInstall {
-                                info: info.clone(),
-                                file_path: target_file,
-                                file_size: meta.len(),
-                            };
+                            let _ =
+                                crate::services::updater::save_cached_update(&info, &target_file);
+                            app.update_status =
+                                crate::services::updater::UpdateStatus::ReadyToInstall {
+                                    info: info.clone(),
+                                    file_path: target_file,
+                                    file_size: meta.len(),
+                                };
                             already_ready = true;
                         }
                     }
@@ -332,14 +329,14 @@ pub(crate) fn handle_start_update_download(app: &mut QdmApp) -> Task<Message> {
         max_connections: 4,
         speed_limit_bps: None,
         sha256_hash: info.checksum_sha256.clone(),
-        created_at: {
-            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
-            now
-        },
-        updated_at: {
-            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
-            now
-        },
+        created_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        updated_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
         completed_at: None,
     };
 
@@ -367,13 +364,19 @@ pub(crate) fn handle_start_update_download(app: &mut QdmApp) -> Task<Message> {
 
 /// Cancels an in-progress update download.
 pub(crate) fn handle_cancel_update_download(app: &mut QdmApp) -> Task<Message> {
-    if let crate::services::updater::UpdateStatus::Downloading { download_id, info, .. } = &app.update_status {
+    if let crate::services::updater::UpdateStatus::Downloading {
+        download_id, info, ..
+    } = &app.update_status
+    {
         let id = *download_id;
         let engine = app.engine.clone();
         app.downloads.retain(|d| d.id != id);
         app.update_status = crate::services::updater::UpdateStatus::UpdateAvailable {
             info: info.clone(),
-            checked_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs(),
+            checked_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
         };
         return Task::perform(
             async move {
@@ -388,10 +391,16 @@ pub(crate) fn handle_cancel_update_download(app: &mut QdmApp) -> Task<Message> {
 
 /// Handles click on "Install Update" button with non-resumable active download conflict detection.
 pub(crate) fn handle_install_update_clicked(app: &mut QdmApp) -> Task<Message> {
-    let active_non_resumable: Vec<_> = app.downloads
+    let active_non_resumable: Vec<_> = app
+        .downloads
         .iter()
         .filter(|d| !d.download_type.is_update())
-        .filter(|d| matches!(d.state, crate::models::download::DownloadState::Downloading { .. }))
+        .filter(|d| {
+            matches!(
+                d.state,
+                crate::models::download::DownloadState::Downloading { .. }
+            )
+        })
         .filter(|d| d.http_meta().map(|h| !h.resumable).unwrap_or(false))
         .cloned()
         .collect();
@@ -407,7 +416,9 @@ pub(crate) fn handle_install_update_clicked(app: &mut QdmApp) -> Task<Message> {
 /// Executes the installer and shuts down the application gracefully.
 pub(crate) fn execute_install_update(app: &mut QdmApp) -> Task<Message> {
     let file_path = match &app.update_status {
-        crate::services::updater::UpdateStatus::ReadyToInstall { file_path, .. } => file_path.clone(),
+        crate::services::updater::UpdateStatus::ReadyToInstall { file_path, .. } => {
+            file_path.clone()
+        }
         _ => return Task::none(),
     };
 
@@ -433,4 +444,3 @@ pub(crate) fn handle_open_update_tab(app: &mut QdmApp) -> Task<Message> {
     app.settings.active_tab = crate::views::settings::settings::SettingsTab::Updates;
     Task::none()
 }
-

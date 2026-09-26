@@ -1,8 +1,8 @@
-use iced::widget::{button, column, container, row, scrollable, text, Space};
-use iced::{Alignment, Element, Length};
 use crate::icons::{self, icon};
 use crate::models::download::{truncate_filename, DownloadItem, DownloadState, FileType};
 use crate::theme::{colors, styles};
+use iced::widget::{button, column, container, row, scrollable, text, Space};
+use iced::{Alignment, Element, Length};
 
 pub fn queue_view<'a, Message>(
     downloads: impl IntoIterator<Item = &'a DownloadItem>,
@@ -119,16 +119,25 @@ where
                 .font(styles::BOLD_FONT)
                 .color(colors::TEXT_PRIMARY);
 
-            let is_resumable = item.torrent_meta().is_some() || item.http_meta().map(|m| m.resumable).unwrap_or(false);
-            
+            let is_resumable = item.torrent_meta().is_some()
+                || item.http_meta().map(|m| m.resumable).unwrap_or(false);
+
             let mut sub_row = row![
                 text(item.formatted_size_progress())
                     .size(11)
                     .color(colors::TEXT_MUTED),
                 text("·").size(11).color(colors::TEXT_MUTED),
-                text(if is_resumable { "Resumable" } else { "Non-resumable" })
-                    .size(11)
-                    .color(if is_resumable { colors::TEXT_MUTED } else { colors::WARNING }),
+                text(if is_resumable {
+                    "Resumable"
+                } else {
+                    "Non-resumable"
+                })
+                .size(11)
+                .color(if is_resumable {
+                    colors::TEXT_MUTED
+                } else {
+                    colors::WARNING
+                }),
             ]
             .spacing(6)
             .align_y(Alignment::Center);
@@ -136,8 +145,13 @@ where
             if item.is_scheduled {
                 let sched_badge = container(
                     row![
-                        icon(icons::ICON_SCHEDULED).size(9).color(colors::BACKGROUND),
-                        text("SCHEDULED").size(9).font(styles::BOLD_FONT).color(colors::BACKGROUND),
+                        icon(icons::ICON_SCHEDULED)
+                            .size(9)
+                            .color(colors::BACKGROUND),
+                        text("SCHEDULED")
+                            .size(9)
+                            .font(styles::BOLD_FONT)
+                            .color(colors::BACKGROUND),
                     ]
                     .spacing(3)
                     .align_y(Alignment::Center),
@@ -145,7 +159,10 @@ where
                 .padding([1, 6])
                 .style(|_| container::Style {
                     background: Some(iced::Background::Color(colors::PRIMARY)),
-                    border: iced::Border { radius: 6.0.into(), ..Default::default() },
+                    border: iced::Border {
+                        radius: 6.0.into(),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 });
 
@@ -158,11 +175,16 @@ where
             let status_badge: Element<'a, Message> = match &item.state {
                 DownloadState::Downloading { speed_bps, .. } => container(
                     row![
-                        icon(icons::ICON_DOWNLOADING).size(11).color(colors::BACKGROUND),
-                        text(format!("Downloading · {}", crate::models::download::format_speed(*speed_bps)))
+                        icon(icons::ICON_DOWNLOADING)
                             .size(11)
-                            .font(styles::BOLD_FONT)
                             .color(colors::BACKGROUND),
+                        text(format!(
+                            "Downloading · {}",
+                            crate::models::download::format_speed(*speed_bps)
+                        ))
+                        .size(11)
+                        .font(styles::BOLD_FONT)
+                        .color(colors::BACKGROUND),
                     ]
                     .spacing(4)
                     .align_y(Alignment::Center),
@@ -170,7 +192,10 @@ where
                 .padding([3, 8])
                 .style(|_| container::Style {
                     background: Some(iced::Background::Color(colors::SUCCESS)),
-                    border: iced::Border { radius: 8.0.into(), ..Default::default() },
+                    border: iced::Border {
+                        radius: 8.0.into(),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 })
                 .into(),
@@ -184,7 +209,10 @@ where
                 .padding([3, 8])
                 .style(|_| container::Style {
                     background: Some(iced::Background::Color(colors::PRIMARY)),
-                    border: iced::Border { radius: 8.0.into(), ..Default::default() },
+                    border: iced::Border {
+                        radius: 8.0.into(),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 })
                 .into(),
@@ -198,7 +226,10 @@ where
                 .padding([3, 8])
                 .style(|_| container::Style {
                     background: Some(iced::Background::Color(colors::WARNING)),
-                    border: iced::Border { radius: 8.0.into(), ..Default::default() },
+                    border: iced::Border {
+                        radius: 8.0.into(),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 })
                 .into(),
@@ -212,7 +243,10 @@ where
                 .padding([3, 8])
                 .style(|_| container::Style {
                     background: Some(iced::Background::Color(colors::WARNING)),
-                    border: iced::Border { radius: 8.0.into(), ..Default::default() },
+                    border: iced::Border {
+                        radius: 8.0.into(),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 })
                 .into(),
@@ -226,7 +260,10 @@ where
                 .padding([3, 8])
                 .style(|_| container::Style {
                     background: Some(iced::Background::Color(colors::PRIMARY)),
-                    border: iced::Border { radius: 8.0.into(), ..Default::default() },
+                    border: iced::Border {
+                        radius: 8.0.into(),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 })
                 .into(),

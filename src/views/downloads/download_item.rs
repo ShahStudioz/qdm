@@ -54,6 +54,7 @@ fn make_limit_badge<'a, Message: 'a>(limit_bps: u64) -> Element<'a, Message> {
     .into()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn download_item_view<'a, Message>(
     item: &'a DownloadItem,
     is_copied: bool,
@@ -352,12 +353,9 @@ where
         }
     };
 
-    let top_row = row![
-        container(header_left).width(Length::Fill),
-        actions_row,
-    ]
-    .spacing(12)
-    .align_y(Alignment::Center);
+    let top_row = row![container(header_left).width(Length::Fill), actions_row,]
+        .spacing(12)
+        .align_y(Alignment::Center);
 
     let url_str = item.get_url();
     let truncated_url = if url_str.len() > 60 {

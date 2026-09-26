@@ -10,10 +10,10 @@
 //! 3. **Broadcast UI Event Stream**: Dispatches throttled `EngineUiEvent`s directly to the UI
 //!    via `tokio::sync::broadcast` without blocking any worker threads.
 
+use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use reqwest::Client;
 use tokio::sync::{broadcast, mpsc, watch, Mutex};
 
 use crate::models::download::{ChunkState, DownloadItem, DownloadState};
@@ -22,6 +22,7 @@ use crate::services::http::task::{DownloadTaskController, TaskEvent};
 
 /// High-level events emitted by the Download Engine for UI presentation.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum EngineUiEvent {
     ProgressUpdated {
         id: usize,

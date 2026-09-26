@@ -1,5 +1,3 @@
-use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input, Space};
-use iced::{Alignment, Element, Length};
 use crate::icons::{self, icon};
 use crate::models::download::{truncate_filename, DownloadItem, DownloadState, FileType};
 use crate::models::schedule::{format_12h, OnCompleteAction};
@@ -7,15 +5,16 @@ use crate::theme::{colors, styles};
 use crate::views::settings::settings::{
     custom_switch, setting_row, ScheduleSubTab, SettingsMessage, SettingsModel,
 };
+use iced::widget::{
+    button, column, container, pick_list, row, scrollable, text, text_input, Space,
+};
+use iced::{Alignment, Element, Length};
 
 pub fn view<'a>(
     model: &'a SettingsModel,
     downloads: &'a [DownloadItem],
 ) -> Element<'a, SettingsMessage> {
-    let scheduled_items: Vec<&DownloadItem> = downloads
-        .iter()
-        .filter(|d| d.is_scheduled)
-        .collect();
+    let scheduled_items: Vec<&DownloadItem> = downloads.iter().filter(|d| d.is_scheduled).collect();
 
     let scheduled_count = scheduled_items.len();
 
@@ -70,18 +69,27 @@ fn subtab_button<'a>(
 
     let text_widget = text(label)
         .size(13)
-        .font(if is_active { styles::BOLD_FONT } else { iced::Font::DEFAULT })
-        .color(if is_active { colors::PRIMARY } else { colors::TEXT_MUTED });
+        .font(if is_active {
+            styles::BOLD_FONT
+        } else {
+            iced::Font::DEFAULT
+        })
+        .color(if is_active {
+            colors::PRIMARY
+        } else {
+            colors::TEXT_MUTED
+        });
 
     let mut content_row = row![text_widget].spacing(6).align_y(Alignment::Center);
 
     if let Some(c) = count {
-        let badge = container(
-            text(c.to_string())
-                .size(10)
-                .font(styles::BOLD_FONT)
-                .color(if is_active { colors::BACKGROUND } else { colors::TEXT_MUTED }),
-        )
+        let badge = container(text(c.to_string()).size(10).font(styles::BOLD_FONT).color(
+            if is_active {
+                colors::BACKGROUND
+            } else {
+                colors::TEXT_MUTED
+            },
+        ))
         .padding([2, 6])
         .style(move |_| container::Style {
             background: Some(iced::Background::Color(if is_active {
@@ -89,7 +97,10 @@ fn subtab_button<'a>(
             } else {
                 colors::SURFACE_HIGH
             })),
-            border: iced::Border { radius: 10.0.into(), ..Default::default() },
+            border: iced::Border {
+                radius: 10.0.into(),
+                ..Default::default()
+            },
             ..Default::default()
         });
 
@@ -207,7 +218,11 @@ fn view_settings_subtab<'a>(model: &'a SettingsModel) -> Element<'a, SettingsMes
             text(*name)
                 .size(11)
                 .font(styles::BOLD_FONT)
-                .color(if is_active { colors::BACKGROUND } else { colors::TEXT_MUTED }),
+                .color(if is_active {
+                    colors::BACKGROUND
+                } else {
+                    colors::TEXT_MUTED
+                }),
         )
         .padding([5, 8])
         .style(move |_, _| {
@@ -215,7 +230,10 @@ fn view_settings_subtab<'a>(model: &'a SettingsModel) -> Element<'a, SettingsMes
                 button::Style {
                     background: Some(iced::Background::Color(colors::PRIMARY)),
                     text_color: colors::BACKGROUND,
-                    border: iced::Border { radius: 12.0.into(), ..Default::default() },
+                    border: iced::Border {
+                        radius: 12.0.into(),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 }
             } else {
@@ -351,31 +369,25 @@ fn view_scheduled_subtab<'a>(items: Vec<&'a DownloadItem>) -> Element<'a, Settin
             .color(colors::TEXT_PRIMARY);
 
         let details_row = row![
-            text(item.formatted_total_size()).size(11).color(colors::TEXT_MUTED),
+            text(item.formatted_total_size())
+                .size(11)
+                .color(colors::TEXT_MUTED),
             text("·").size(11).color(colors::TEXT_MUTED),
-            text(format!("Added: {}", item.formatted_created_date())).size(11).color(colors::TEXT_MUTED),
+            text(format!("Added: {}", item.formatted_created_date()))
+                .size(11)
+                .color(colors::TEXT_MUTED),
         ]
         .spacing(6)
         .align_y(Alignment::Center);
 
-        let info_box = column![name_label, details_row].spacing(2).width(Length::Fill);
+        let info_box = column![name_label, details_row]
+            .spacing(2)
+            .width(Length::Fill);
 
         // Status badge
         let status_badge = match &item.state {
             DownloadState::Completed => container(
-                text("COMPLETED").size(10).font(styles::BOLD_FONT).color(colors::BACKGROUND),
-            )
-            .height(Length::Fixed(18.0))
-            .align_y(Alignment::Center)
-            .padding([2, 6])
-            .style(|_| container::Style {
-                background: Some(iced::Background::Color(colors::SUCCESS)),
-                border: iced::Border { radius: 6.0.into(), ..Default::default() },
-                ..Default::default()
-            }),
-
-            DownloadState::Downloading { speed_bps, .. } => container(
-                text(format!("RUNNING · {}", crate::models::download::format_speed(*speed_bps)))
+                text("COMPLETED")
                     .size(10)
                     .font(styles::BOLD_FONT)
                     .color(colors::BACKGROUND),
@@ -385,19 +397,49 @@ fn view_scheduled_subtab<'a>(items: Vec<&'a DownloadItem>) -> Element<'a, Settin
             .padding([2, 6])
             .style(|_| container::Style {
                 background: Some(iced::Background::Color(colors::SUCCESS)),
-                border: iced::Border { radius: 6.0.into(), ..Default::default() },
+                border: iced::Border {
+                    radius: 6.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+
+            DownloadState::Downloading { speed_bps, .. } => container(
+                text(format!(
+                    "RUNNING · {}",
+                    crate::models::download::format_speed(*speed_bps)
+                ))
+                .size(10)
+                .font(styles::BOLD_FONT)
+                .color(colors::BACKGROUND),
+            )
+            .height(Length::Fixed(18.0))
+            .align_y(Alignment::Center)
+            .padding([2, 6])
+            .style(|_| container::Style {
+                background: Some(iced::Background::Color(colors::SUCCESS)),
+                border: iced::Border {
+                    radius: 6.0.into(),
+                    ..Default::default()
+                },
                 ..Default::default()
             }),
 
             _ => container(
-                text("SCHEDULED").size(10).font(styles::BOLD_FONT).color(colors::BACKGROUND),
+                text("SCHEDULED")
+                    .size(10)
+                    .font(styles::BOLD_FONT)
+                    .color(colors::BACKGROUND),
             )
             .height(Length::Fixed(18.0))
             .align_y(Alignment::Center)
             .padding([2, 6])
             .style(|_| container::Style {
                 background: Some(iced::Background::Color(colors::PRIMARY)),
-                border: iced::Border { radius: 6.0.into(), ..Default::default() },
+                border: iced::Border {
+                    radius: 6.0.into(),
+                    ..Default::default()
+                },
                 ..Default::default()
             }),
         };
@@ -417,12 +459,10 @@ fn view_scheduled_subtab<'a>(items: Vec<&'a DownloadItem>) -> Element<'a, Settin
             down_btn = down_btn.on_press(SettingsMessage::MoveScheduledItemDown(item_id));
         }
 
-        let remove_btn = button(
-            icon(icons::ICON_XMARK).size(13).color(colors::ERROR),
-        )
-        .padding([6, 8])
-        .style(styles::icon_button_style)
-        .on_press(SettingsMessage::RemoveFromSchedule(item_id));
+        let remove_btn = button(icon(icons::ICON_XMARK).size(13).color(colors::ERROR))
+            .padding([6, 8])
+            .style(styles::icon_button_style)
+            .on_press(SettingsMessage::RemoveFromSchedule(item_id));
 
         let actions = row![up_btn, down_btn, remove_btn]
             .spacing(4)

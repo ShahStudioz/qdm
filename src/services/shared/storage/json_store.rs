@@ -200,9 +200,11 @@ mod tests {
     #[test]
     fn test_settings_model_with_custom_actions_serde() {
         use crate::views::settings::settings::{DeleteAction, FileConflictAction};
-        let mut settings = SettingsModel::default();
-        settings.file_conflict_action = Some(FileConflictAction::AutoRename);
-        settings.delete_action = Some(DeleteAction::DeleteFromDisk);
+        let settings = SettingsModel {
+            file_conflict_action: Some(FileConflictAction::AutoRename),
+            delete_action: Some(DeleteAction::DeleteFromDisk),
+            ..Default::default()
+        };
 
         let json = serde_json::to_string(&settings).expect("Serialize settings");
         let parsed: SettingsModel = serde_json::from_str(&json).expect("Deserialize settings");

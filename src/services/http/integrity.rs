@@ -7,11 +7,11 @@
 //! 1. Full-file SHA-256 cryptographic checksum calculation and validation.
 //! 2. Structural verification of ZIP archives by validating the End of Central Directory (EOCD) header.
 
+use crate::models::download::FileType;
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use crate::models::download::FileType;
 
 /// Computes the SHA-256 hex digest of the target file asynchronously in a blocking thread pool.
 pub async fn compute_sha256<P: AsRef<Path>>(path: P) -> Result<String, String> {
@@ -95,7 +95,10 @@ pub async fn verify_zip_eocd<P: AsRef<Path>>(path: P) -> Result<bool, String> {
 }
 
 /// Dispatches automatic structural checks based on detected file type.
-pub async fn verify_structure<P: AsRef<Path>>(path: P, file_type: FileType) -> Result<bool, String> {
+pub async fn verify_structure<P: AsRef<Path>>(
+    path: P,
+    file_type: FileType,
+) -> Result<bool, String> {
     let path_ref = path.as_ref();
     let ext = path_ref
         .extension()
@@ -123,7 +126,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_sha256_verification() {
-        let temp_dir = std::env::temp_dir().join(format!("qdm_test_sha_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "qdm_test_sha_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let _ = std::fs::create_dir_all(&temp_dir);
         let file_path = temp_dir.join("test_hash.txt");
 
@@ -139,7 +148,12 @@ mod tests {
         let is_valid = verify_sha256(&file_path, expected_hash).await.unwrap();
         assert!(is_valid, "SHA-256 should match expected hash");
 
-        let is_invalid = verify_sha256(&file_path, "0000000000000000000000000000000000000000000000000000000000000000").await.unwrap();
+        let is_invalid = verify_sha256(
+            &file_path,
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .await
+        .unwrap();
         assert!(!is_invalid, "SHA-256 should not match bogus hash");
 
         let _ = std::fs::remove_file(&file_path);
@@ -148,7 +162,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_zip_eocd_verification() {
-        let temp_dir = std::env::temp_dir().join(format!("qdm_test_zip_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "qdm_test_zip_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let _ = std::fs::create_dir_all(&temp_dir);
         let valid_zip = temp_dir.join("valid.zip");
         let invalid_zip = temp_dir.join("corrupt.zip");
@@ -162,10 +182,17 @@ mod tests {
         f1.write_all(&eocd).unwrap();
 
         let mut f2 = File::create(&invalid_zip).unwrap();
-        f2.write_all(b"this is a corrupt random file that is not a zip").unwrap();
+        f2.write_all(b"this is a corrupt random file that is not a zip")
+            .unwrap();
 
-        assert!(verify_zip_eocd(&valid_zip).await.unwrap(), "Valid ZIP EOCD should pass");
-        assert!(!verify_zip_eocd(&invalid_zip).await.unwrap(), "Corrupt ZIP without EOCD should fail");
+        assert!(
+            verify_zip_eocd(&valid_zip).await.unwrap(),
+            "Valid ZIP EOCD should pass"
+        );
+        assert!(
+            !verify_zip_eocd(&invalid_zip).await.unwrap(),
+            "Corrupt ZIP without EOCD should fail"
+        );
 
         let _ = std::fs::remove_file(&valid_zip);
         let _ = std::fs::remove_file(&invalid_zip);
