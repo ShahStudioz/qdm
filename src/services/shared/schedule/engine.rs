@@ -42,7 +42,10 @@ impl SchedulerService {
             // Check if there are active scheduled downloads still running or queued
             let has_active_scheduled = downloads.iter().any(|d| {
                 d.is_scheduled
-                    && !matches!(d.state, DownloadState::Completed | DownloadState::Failed { .. })
+                    && !matches!(
+                        d.state,
+                        DownloadState::Completed | DownloadState::Failed { .. }
+                    )
             });
 
             // If all scheduled downloads are finished and we haven't triggered the power action yet

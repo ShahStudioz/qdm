@@ -1,24 +1,25 @@
+use librqbit::{
+    api::TorrentIdOrHash, dht::DhtPersistenceConfig, AddTorrent, AddTorrentOptions,
+    AddTorrentResponse, DhtSessionConfig, ManagedTorrent, Session, SessionOptions,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
-use librqbit::{
-    Session, SessionOptions, DhtSessionConfig, dht::DhtPersistenceConfig,
-    AddTorrent, AddTorrentOptions, AddTorrentResponse,
-    ManagedTorrent,
-    api::TorrentIdOrHash,
-};
 
 use crate::models::download::{DownloadItem, DownloadState};
 use crate::services::http::engine::EngineUiEvent;
 use crate::services::shared::network::connectivity::ConnectivityMonitor;
+
+type TorrentHandleEntry = (usize, Arc<ManagedTorrent>, tokio::task::JoinHandle<()>);
+type TorrentHandleMap = Arc<RwLock<HashMap<usize, TorrentHandleEntry>>>;
 
 /// The internal Torrent engine wrapping librqbit
 #[derive(Clone)]
 pub struct TorrentEngine {
     session: Arc<Session>,
     event_tx: broadcast::Sender<EngineUiEvent>,
-    handles: Arc<RwLock<HashMap<usize, (usize, Arc<ManagedTorrent>, tokio::task::JoinHandle<()>)>>>,
+    handles: TorrentHandleMap,
 }
 
 impl TorrentEngine {
@@ -70,7 +71,9 @@ impl TorrentEngine {
                         };
                         Session::new_with_opts(default_download_dir, opts_no_dht)
                             .await
-                            .map_err(|e3| format!("Failed to initialize librqbit session: {}", e3))?
+                            .map_err(|e3| {
+                                format!("Failed to initialize librqbit session: {}", e3)
+                            })?
                     }
                 }
             }
@@ -86,7 +89,10 @@ impl TorrentEngine {
     /// Constructs an `AddTorrent` from either a URL/magnet link or a local file path.
     pub fn make_add_torrent(target: &str) -> Result<AddTorrent<'static>, String> {
         let trimmed = target.trim();
-        if trimmed.starts_with("magnet:") || trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        if trimmed.starts_with("magnet:")
+            || trimmed.starts_with("http://")
+            || trimmed.starts_with("https://")
+        {
             Ok(AddTorrent::Url(trimmed.to_string().into()))
         } else if std::path::Path::new(trimmed).exists() {
             let bytes = std::fs::read(trimmed)
@@ -118,7 +124,11 @@ impl TorrentEngine {
     }
 
     /// Starts or resumes a torrent download.
-    pub async fn start_or_resume(&self, item: &DownloadItem, play_media: bool) -> Result<(), String> {
+    pub async fn start_or_resume(
+        &self,
+        item: &DownloadItem,
+        play_media: bool,
+    ) -> Result<(), String> {
         let torrent_meta = item
             .torrent_meta()
             .ok_or_else(|| "Item is not a torrent".to_string())?;
@@ -170,13 +180,14 @@ impl TorrentEngine {
         } else {
             !(play_media && item.file_type == crate::models::download::FileType::Media)
         };
-        
-        let staging_base = std::path::PathBuf::from(&item.save_path).join(format!(".qdmdownload_{}", item.id));
+
+        let staging_base =
+            std::path::PathBuf::from(&item.save_path).join(format!(".qdmdownload_{}", item.id));
         let final_base = std::path::PathBuf::from(&item.save_path);
-        
+
         let staging_target = staging_base.join(&item.filename);
         let final_target = final_base.join(&item.filename);
-        
+
         // Dynamically move files between staging and final destinations if setting changed
         if use_staging {
             if final_target.exists() && !staging_base.exists() && !has_custom_name {
@@ -224,7 +235,10 @@ impl TorrentEngine {
             .add_torrent(add_torrent, Some(make_opts()))
             .await
             .map_err(|e| {
-                println!("[QDM Torrent] add_torrent failed for item {}: {}", item_id, e);
+                println!(
+                    "[QDM Torrent] add_torrent failed for item {}: {}",
+                    item_id, e
+                );
                 e.to_string()
             })?;
 
@@ -267,10 +281,16 @@ impl TorrentEngine {
                 // the torrent was left in the session (e.g. from probe_metadata or a prior run)
                 // with potentially wrong/stale output_folder settings.
                 // Remove it from session and re-add fresh with the current output_folder!
-                let _ = self.session.delete(TorrentIdOrHash::Id(torrent_id), false).await;
+                let _ = self
+                    .session
+                    .delete(TorrentIdOrHash::Id(torrent_id), false)
+                    .await;
 
                 let add_torrent = Self::make_add_torrent(&torrent_meta.magnet_uri)?;
-                let retry_resp = self.session.add_torrent(add_torrent, Some(make_opts())).await;
+                let retry_resp = self
+                    .session
+                    .add_torrent(add_torrent, Some(make_opts()))
+                    .await;
 
                 let (actual_id, actual_handle) = match retry_resp {
                     Ok(AddTorrentResponse::Added(id, h)) => (id, h),
@@ -331,16 +351,16 @@ impl TorrentEngine {
         event_tx: broadcast::Sender<EngineUiEvent>,
         initial_downloaded_bytes: u64,
         session: Arc<Session>,
-        handles: Arc<RwLock<HashMap<usize, (usize, Arc<ManagedTorrent>, tokio::task::JoinHandle<()>)>>>,
+        handles: TorrentHandleMap,
     ) {
         let mut last_fetched_bytes = 0;
         let mut smooth_downloaded_bytes = initial_downloaded_bytes;
-        
+
         let mut speed_meter = crate::services::http::task::SlidingSpeedMeter::new(
-            std::time::Duration::from_millis(2500)
+            std::time::Duration::from_millis(2500),
         );
         let mut upload_speed_meter = crate::services::http::task::SlidingSpeedMeter::new(
-            std::time::Duration::from_millis(2500)
+            std::time::Duration::from_millis(2500),
         );
         let mut last_uploaded_bytes = 0;
         let mut has_gone_live = false; // tracks if we've completed hash verification
@@ -351,14 +371,15 @@ impl TorrentEngine {
             interval.tick().await;
 
             let stats = handle.stats();
-            
+
             // Detect the hash verification phase:
             // stats.live is None while librqbit is checking existing file integrity.
             // During this phase, progress_bytes climbs 0→total as pieces are verified,
             // then drops to the actual verified amount once checking finishes.
             if stats.live.is_none() && stats.total_bytes > 0 {
                 // We're in the checking phase — show verification progress
-                let check_pct = ((stats.progress_bytes as f64 / stats.total_bytes as f64) * 100.0).min(100.0) as u8;
+                let check_pct = ((stats.progress_bytes as f64 / stats.total_bytes as f64) * 100.0)
+                    .min(100.0) as u8;
                 let _ = event_tx.send(EngineUiEvent::StateChanged {
                     id: item_id,
                     state: DownloadState::Checking {
@@ -381,7 +402,11 @@ impl TorrentEngine {
                     id: item_id,
                     state: DownloadState::Downloading {
                         downloaded_bytes: stats.progress_bytes,
-                        total_bytes: if stats.total_bytes > 0 { Some(stats.total_bytes) } else { None },
+                        total_bytes: if stats.total_bytes > 0 {
+                            Some(stats.total_bytes)
+                        } else {
+                            None
+                        },
                         speed_bps: 0,
                         eta_secs: None,
                     },
@@ -390,12 +415,14 @@ impl TorrentEngine {
 
             // Normal progress tracking (only when live)
             let progress = stats.progress_bytes;
-            if smooth_downloaded_bytes > progress && smooth_downloaded_bytes - progress > 10 * 1024 * 1024 {
+            if smooth_downloaded_bytes > progress
+                && smooth_downloaded_bytes - progress > 10 * 1024 * 1024
+            {
                 smooth_downloaded_bytes = progress;
             } else {
                 smooth_downloaded_bytes = smooth_downloaded_bytes.max(progress);
             }
-            
+
             if let Some(live) = &stats.live {
                 let fetched = live.snapshot.fetched_bytes;
                 if fetched > last_fetched_bytes {
@@ -404,7 +431,7 @@ impl TorrentEngine {
                     last_fetched_bytes = fetched;
                     speed_meter.record_bytes(delta);
                 }
-                
+
                 let uploaded = live.snapshot.uploaded_bytes;
                 if uploaded > last_uploaded_bytes {
                     let delta = uploaded - last_uploaded_bytes;
@@ -412,7 +439,7 @@ impl TorrentEngine {
                     upload_speed_meter.record_bytes(delta);
                 }
             }
-            
+
             let downloaded_bytes = if stats.total_bytes > 0 {
                 smooth_downloaded_bytes.min(stats.total_bytes)
             } else {
@@ -425,20 +452,22 @@ impl TorrentEngine {
                 None
             };
 
-            let (speed_bps, upload_speed_bps, peers, seeds, eta_secs) = if let Some(live) = stats.live {
-                let down_speed = speed_meter.calculate_speed_bps();
-                let up_speed = upload_speed_meter.calculate_speed_bps();
-                let peers = live.snapshot.peer_stats.live;
-                let seeds = live.snapshot.peer_stats.seen;
-                let eta = if down_speed > 0 && total_bytes.is_some() && total_bytes.unwrap() > downloaded_bytes {
-                    Some((total_bytes.unwrap() - downloaded_bytes) / down_speed)
+            let (speed_bps, upload_speed_bps, peers, seeds, eta_secs) =
+                if let Some(live) = stats.live {
+                    let down_speed = speed_meter.calculate_speed_bps();
+                    let up_speed = upload_speed_meter.calculate_speed_bps();
+                    let peers = live.snapshot.peer_stats.live;
+                    let seeds = live.snapshot.peer_stats.seen;
+                    let eta = match total_bytes {
+                        Some(total) if down_speed > 0 && total > downloaded_bytes => {
+                            Some((total - downloaded_bytes) / down_speed)
+                        }
+                        _ => None,
+                    };
+                    (down_speed, up_speed, peers, seeds, eta)
                 } else {
-                    None
+                    (0, 0, 0, 0, None)
                 };
-                (down_speed, up_speed, peers, seeds, eta)
-            } else {
-                (0, 0, 0, 0, None)
-            };
 
             if has_gone_live && speed_bps == 0 && upload_speed_bps == 0 && peers == 0 {
                 zero_speed_ticks += 1;
@@ -474,10 +503,10 @@ impl TorrentEngine {
             // Completion check: only trust the hash-verified progress_bytes from librqbit,
             // NOT our smooth UI counter. stats.finished can briefly be true from stale
             // fastresume data before hash check corrects it, so also verify progress.
-            let truly_finished = stats.finished 
-                && stats.total_bytes > 0 
+            let truly_finished = stats.finished
+                && stats.total_bytes > 0
                 && stats.progress_bytes >= stats.total_bytes;
-            
+
             if truly_finished {
                 let _ = event_tx.send(EngineUiEvent::TorrentProgressUpdated {
                     id: item_id,
@@ -529,7 +558,11 @@ impl TorrentEngine {
                 id,
                 state: DownloadState::Paused {
                     downloaded_bytes: stats.progress_bytes,
-                    total_bytes: if stats.total_bytes > 0 { Some(stats.total_bytes) } else { None },
+                    total_bytes: if stats.total_bytes > 0 {
+                        Some(stats.total_bytes)
+                    } else {
+                        None
+                    },
                 },
             });
         }
@@ -550,7 +583,10 @@ impl TorrentEngine {
         let mut handles_guard = self.handles.write().await;
         if let Some((torrent_id, _, monitor_task)) = handles_guard.remove(&id) {
             monitor_task.abort();
-            let _ = self.session.delete(TorrentIdOrHash::Id(torrent_id), false).await;
+            let _ = self
+                .session
+                .delete(TorrentIdOrHash::Id(torrent_id), false)
+                .await;
         }
     }
 
@@ -571,7 +607,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_torrent_engine_init() {
-        let dir = dirs::download_dir().unwrap_or_else(|| std::env::temp_dir());
+        let dir = dirs::download_dir().unwrap_or_else(std::env::temp_dir);
         let (tx, _) = broadcast::channel(16);
         let res = TorrentEngine::new(dir, tx).await;
         assert!(res.is_ok(), "TorrentEngine::new failed: {:?}", res.err());

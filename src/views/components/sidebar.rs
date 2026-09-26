@@ -14,6 +14,7 @@ pub enum NavFilter {
     Settings,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn sidebar_view<'a, Message>(
     current_filter: NavFilter,
     downloading_count: usize,
@@ -207,7 +208,9 @@ where
                 button::Status::Hovered | button::Status::Pressed => {
                     Some(iced::Background::Color(colors::SURFACE_HIGH))
                 }
-                _ => Some(iced::Background::Color(iced::Color::from_rgba(0.0, 0.7, 0.85, 0.08))),
+                _ => Some(iced::Background::Color(iced::Color::from_rgba(
+                    0.0, 0.7, 0.85, 0.08,
+                ))),
             };
             button::Style {
                 background: bg,

@@ -260,16 +260,16 @@ impl ChunkWorker {
                     }
 
                     // 3. HTTP 416 Range Not Satisfiable
-                    if status == StatusCode::RANGE_NOT_SATISFIABLE {
-                        if self.chunk.current_offset >= self.chunk.end_byte {
-                            let _ = self
-                                .event_tx
-                                .send(WorkerEvent::ChunkCompleted {
-                                    chunk_id: self.chunk.id,
-                                })
-                                .await;
-                            return;
-                        }
+                    if status == StatusCode::RANGE_NOT_SATISFIABLE
+                        && self.chunk.current_offset >= self.chunk.end_byte
+                    {
+                        let _ = self
+                            .event_tx
+                            .send(WorkerEvent::ChunkCompleted {
+                                chunk_id: self.chunk.id,
+                            })
+                            .await;
+                        return;
                     }
 
                     // 4. Other Non-Success HTTP Errors (500, 502, 504, 408, etc.)
@@ -318,7 +318,7 @@ impl ChunkWorker {
                         if let Some(content_range) =
                             headers.get(CONTENT_RANGE).and_then(|v| v.to_str().ok())
                         {
-                            if let Some(total_str) = content_range.split('/').last() {
+                            if let Some(total_str) = content_range.split('/').next_back() {
                                 if let Ok(total) = total_str.trim().parse::<u64>() {
                                     discovered_length = Some(total);
                                 }

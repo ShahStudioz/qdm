@@ -87,8 +87,16 @@ mod tests {
         }
         let elapsed = start.elapsed();
         // First chunk at 0s, 2nd at 0.25s, 3rd at 0.50s, 4th at 0.75s
-        assert!(elapsed >= Duration::from_millis(700), "Elapsed: {:?}", elapsed);
-        assert!(elapsed <= Duration::from_millis(1100), "Elapsed: {:?}", elapsed);
+        assert!(
+            elapsed >= Duration::from_millis(700),
+            "Elapsed: {:?}",
+            elapsed
+        );
+        assert!(
+            elapsed <= Duration::from_millis(1100),
+            "Elapsed: {:?}",
+            elapsed
+        );
     }
 
     #[tokio::test]
@@ -115,8 +123,16 @@ mod tests {
         // 4 tasks * 25,000 bytes = 100,000 bytes total.
         // Task 1: 0s, Task 2: 0.25s, Task 3: 0.50s, Task 4: 0.75s.
         // The last task finishes at ~0.75s - 0.85s.
-        assert!(elapsed >= Duration::from_millis(700), "Multi-stream elapsed: {:?}", elapsed);
-        assert!(elapsed <= Duration::from_millis(1100), "Multi-stream elapsed: {:?}", elapsed);
+        assert!(
+            elapsed >= Duration::from_millis(700),
+            "Multi-stream elapsed: {:?}",
+            elapsed
+        );
+        assert!(
+            elapsed <= Duration::from_millis(1100),
+            "Multi-stream elapsed: {:?}",
+            elapsed
+        );
     }
 
     #[tokio::test]

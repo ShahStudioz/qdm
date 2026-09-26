@@ -4,6 +4,7 @@ use crate::views::downloads::download_item::download_item_view;
 use iced::widget::{column, container, scrollable, text, Space};
 use iced::{Alignment, Element, Length};
 
+#[allow(clippy::too_many_arguments)]
 pub fn download_list_view<'a, Message>(
     items: impl IntoIterator<Item = &'a DownloadItem>,
     copied_ids: &'a std::collections::HashSet<usize>,

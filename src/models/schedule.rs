@@ -246,16 +246,18 @@ mod tests {
 
     #[test]
     fn test_schedule_active_window_same_day() {
-        let mut cfg = ScheduleConfig::default();
-        cfg.enabled = true;
-        cfg.start_time = "14:00".to_string();
-        cfg.stop_enabled = true;
-        cfg.stop_time = "18:00".to_string();
+        let cfg = ScheduleConfig {
+            enabled: true,
+            start_time: "14:00".to_string(),
+            stop_enabled: true,
+            stop_time: "18:00".to_string(),
+            ..Default::default()
+        };
 
         let date = NaiveDate::from_ymd_opt(2026, 8, 20).unwrap(); // Thursday
         let t_inside = NaiveDateTime::new(date, NaiveTime::from_hms_opt(15, 30, 0).unwrap());
         let t_before = NaiveDateTime::new(date, NaiveTime::from_hms_opt(13, 59, 0).unwrap());
-        let t_after = NaiveDateTime::new(date, NaiveTime::from_hms_opt(18, 01, 0).unwrap());
+        let t_after = NaiveDateTime::new(date, NaiveTime::from_hms_opt(18, 1, 0).unwrap());
 
         assert!(cfg.is_in_active_window(t_inside));
         assert!(!cfg.is_in_active_window(t_before));
@@ -264,11 +266,13 @@ mod tests {
 
     #[test]
     fn test_schedule_active_window_overnight() {
-        let mut cfg = ScheduleConfig::default();
-        cfg.enabled = true;
-        cfg.start_time = "23:00".to_string();
-        cfg.stop_enabled = true;
-        cfg.stop_time = "07:00".to_string();
+        let cfg = ScheduleConfig {
+            enabled: true,
+            start_time: "23:00".to_string(),
+            stop_enabled: true,
+            stop_time: "07:00".to_string(),
+            ..Default::default()
+        };
 
         let date = NaiveDate::from_ymd_opt(2026, 8, 20).unwrap(); // Thursday
         let t_night = NaiveDateTime::new(date, NaiveTime::from_hms_opt(23, 30, 0).unwrap());
@@ -282,9 +286,11 @@ mod tests {
 
     #[test]
     fn test_schedule_disabled_window() {
-        let mut cfg = ScheduleConfig::default();
-        cfg.enabled = false;
-        cfg.start_time = "10:00".to_string();
+        let cfg = ScheduleConfig {
+            enabled: false,
+            start_time: "10:00".to_string(),
+            ..Default::default()
+        };
 
         let date = NaiveDate::from_ymd_opt(2026, 8, 20).unwrap();
         let t = NaiveDateTime::new(date, NaiveTime::from_hms_opt(12, 0, 0).unwrap());

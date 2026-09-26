@@ -1,7 +1,7 @@
-use iced::widget::{button, column, container, image, mouse_area, row, text, Space};
-use iced::{Alignment, Element, Length};
 use crate::icons::{self, icon};
 use crate::theme::{colors, styles};
+use iced::widget::{button, column, container, image, mouse_area, row, text, Space};
+use iced::{Alignment, Element, Length};
 
 pub fn title_bar_view<'a, Message>(
     is_maximized: bool,
@@ -114,14 +114,12 @@ where
     ]
     .align_y(Alignment::Center);
 
-    column![
-        container(bar_row)
-            .width(Length::Fill)
-            .height(Length::Fixed(32.0))
-            .style(|_| container::Style {
-                background: Some(iced::Background::Color(colors::SURFACE)),
-                ..Default::default()
-            }),
-    ]
+    column![container(bar_row)
+        .width(Length::Fill)
+        .height(Length::Fixed(32.0))
+        .style(|_| container::Style {
+            background: Some(iced::Background::Color(colors::SURFACE)),
+            ..Default::default()
+        }),]
     .into()
 }

@@ -18,7 +18,9 @@ use crate::models::download::DownloadItem;
 use crate::services::http::EngineUiEvent;
 use crate::services::shared::storage;
 use crate::views::components::sidebar;
-use crate::views::dialogues::{add_dialogue, conflict_dialogue, delete_dialogue, detail_dialogue, mirror_dialogue};
+use crate::views::dialogues::{
+    add_dialogue, conflict_dialogue, delete_dialogue, detail_dialogue, mirror_dialogue,
+};
 use crate::views::settings::settings;
 use iced::Task;
 use std::collections::HashMap;
@@ -78,7 +80,9 @@ pub enum Message {
     DetailDialogueMessages(detail_dialogue::DetailDialogueMessage),
     ConflictDialogueMessages(conflict_dialogue::ConflictDialogMessage),
     DeleteDialogueMessages(delete_dialogue::DeleteDialogMessage),
-    UpdateConflictMessages(crate::views::dialogues::update_conflict_dialogue::UpdateConflictDialogMessage),
+    UpdateConflictMessages(
+        crate::views::dialogues::update_conflict_dialogue::UpdateConflictDialogMessage,
+    ),
 
     // --- Update Management ---
     #[allow(dead_code)]
@@ -140,7 +144,8 @@ pub struct QdmApp {
     pub(crate) detail_dialog: detail_dialogue::DetailDialogModel,
     pub(crate) conflict_dialog: conflict_dialogue::ConflictDialogModel,
     pub(crate) delete_dialog: delete_dialogue::DeleteDialogModel,
-    pub(crate) update_conflict_dialog: crate::views::dialogues::update_conflict_dialogue::UpdateConflictDialogModel,
+    pub(crate) update_conflict_dialog:
+        crate::views::dialogues::update_conflict_dialogue::UpdateConflictDialogModel,
 
     // --- Auto-Update Subsystem ---
     pub(crate) update_status: crate::services::updater::UpdateStatus,
@@ -153,7 +158,6 @@ pub struct QdmApp {
     pub(crate) copied_link_ids: std::collections::HashSet<usize>,
     pub(crate) last_item_click: Option<(usize, std::time::Instant)>,
 }
-
 
 impl Default for QdmApp {
     fn default() -> Self {
@@ -216,7 +220,7 @@ impl QdmApp {
             async { storage::json_store::load_downloads() },
             Message::DownloadsLoaded,
         );
-        
+
         let engine_clone = app.engine.clone();
         let default_dir = std::path::PathBuf::from(initial_settings.download_folder.clone());
         let torrent_task = Task::perform(
@@ -228,11 +232,17 @@ impl QdmApp {
 
         let window_task = iced::window::get_latest().map(Message::WindowIdRetrieved);
 
-        let update_check_task = if initial_settings.auto_check_updates && !initial_update_status.is_ready_to_install() {
+        let update_check_task = if initial_settings.auto_check_updates
+            && !initial_update_status.is_ready_to_install()
+        {
             let api_url = initial_settings.update_api_url.clone();
             Task::perform(
                 async move {
-                    crate::services::updater::check_for_updates(&api_url, crate::core::version::APP_VERSION).await
+                    crate::services::updater::check_for_updates(
+                        &api_url,
+                        crate::core::version::APP_VERSION,
+                    )
+                    .await
                 },
                 Message::UpdateCheckResult,
             )
@@ -242,15 +252,25 @@ impl QdmApp {
 
         let initial_arg_task = if let Some(arg) = crate::core::single_instance::take_initial_arg() {
             Task::perform(async move { arg }, |url| {
-                Message::SingleInstanceCommand(crate::core::single_instance::SingleInstanceCommand::Open(url))
+                Message::SingleInstanceCommand(
+                    crate::core::single_instance::SingleInstanceCommand::Open(url),
+                )
             })
         } else {
             Task::none()
         };
 
-        (app, Task::batch([downloads_task, torrent_task, window_task, update_check_task, initial_arg_task]))
+        (
+            app,
+            Task::batch([
+                downloads_task,
+                torrent_task,
+                window_task,
+                update_check_task,
+                initial_arg_task,
+            ]),
+        )
     }
-
 
     // -----------------------------------------------------------------------
     // Queue Synchronization
@@ -324,9 +344,7 @@ impl QdmApp {
             Message::SecondTick => handlers::queue::handle_second_tick(self),
 
             // --- Network Monitoring ---
-            Message::CheckNetworkConnectivity => {
-                handlers::network::handle_check_connectivity(self)
-            }
+            Message::CheckNetworkConnectivity => handlers::network::handle_check_connectivity(self),
             Message::NetworkConnectivityResult(is_online) => {
                 handlers::network::handle_connectivity_result(self, is_online)
             }
@@ -342,8 +360,13 @@ impl QdmApp {
                 // have failed to start because the engine wasn't ready yet. Kick them off now.
                 let mut tasks = Vec::new();
                 for item in &self.downloads {
-                    if matches!(item.state, crate::models::download::DownloadState::Downloading { .. }) {
-                        if let crate::models::download::DownloadType::Torrent(_) = &item.download_type {
+                    if matches!(
+                        item.state,
+                        crate::models::download::DownloadState::Downloading { .. }
+                    ) {
+                        if let crate::models::download::DownloadType::Torrent(_) =
+                            &item.download_type
+                        {
                             let item_clone = item.clone();
                             let engine = self.engine.clone();
                             let play_media = self.settings.torrent_play_media_while_downloading;
@@ -377,9 +400,7 @@ impl QdmApp {
             Message::EngineEvent(event) => handlers::engine::handle_engine_event(self, event),
 
             // --- Navigation & UI ---
-            Message::NavSelected(filter) => {
-                handlers::navigation::handle_nav_selected(self, filter)
-            }
+            Message::NavSelected(filter) => handlers::navigation::handle_nav_selected(self, filter),
             Message::SearchChanged(query) => {
                 handlers::navigation::handle_search_changed(self, query)
             }
@@ -390,9 +411,7 @@ impl QdmApp {
 
             // --- Download Actions ---
             Message::TogglePause(id) => handlers::downloads::handle_toggle_pause(self, id),
-            Message::CancelDownload(id) => {
-                handlers::downloads::handle_cancel_download(self, id)
-            }
+            Message::CancelDownload(id) => handlers::downloads::handle_cancel_download(self, id),
             Message::CopyLink(id) => handlers::downloads::handle_copy_link(self, id),
             Message::OpenFolder(id) => handlers::downloads::handle_open_folder(self, id),
             Message::OpenMirrorsModal(id) => {
@@ -404,9 +423,7 @@ impl QdmApp {
             Message::ItemClicked(id) => handlers::downloads::handle_item_clicked(self, id),
 
             // --- Queue Management ---
-            Message::MoveQueueItemUp(id) => {
-                handlers::queue::handle_move_queue_item_up(self, id)
-            }
+            Message::MoveQueueItemUp(id) => handlers::queue::handle_move_queue_item_up(self, id),
             Message::MoveQueueItemDown(id) => {
                 handlers::queue::handle_move_queue_item_down(self, id)
             }
@@ -462,10 +479,7 @@ impl QdmApp {
             Message::ConfirmInstallUpdateAnyway => {
                 handlers::navigation::execute_install_update(self)
             }
-            Message::OpenUpdateTab => {
-                handlers::navigation::handle_open_update_tab(self)
-            }
-
+            Message::OpenUpdateTab => handlers::navigation::handle_open_update_tab(self),
 
             // --- Window Management ---
             Message::WindowIdRetrieved(id_opt) => {

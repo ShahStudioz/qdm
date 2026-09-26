@@ -88,49 +88,47 @@ pub mod windows {
             }
 
             // 5. Border and corner hit testing for edge-grabbing
-            WM_NCHITTEST => {
-                if IsZoomed(hwnd) == 0 {
-                    let mut rect = std::mem::zeroed();
-                    if GetWindowRect(hwnd, &mut rect) != 0 {
-                        let x = (lparam & 0xFFFF) as i16 as i32;
-                        let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
-                        let border = 7;
-                        let corner = 14;
+            WM_NCHITTEST if IsZoomed(hwnd) == 0 => {
+                let mut rect = std::mem::zeroed();
+                if GetWindowRect(hwnd, &mut rect) != 0 {
+                    let x = (lparam & 0xFFFF) as i16 as i32;
+                    let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
+                    let border = 7;
+                    let corner = 14;
 
-                        let on_left = x >= rect.left && x < rect.left + border;
-                        let on_right = x <= rect.right && x > rect.right - border;
-                        let on_top = y >= rect.top && y < rect.top + border;
-                        let on_bottom = y <= rect.bottom && y > rect.bottom - border;
+                    let on_left = x >= rect.left && x < rect.left + border;
+                    let on_right = x <= rect.right && x > rect.right - border;
+                    let on_top = y >= rect.top && y < rect.top + border;
+                    let on_bottom = y <= rect.bottom && y > rect.bottom - border;
 
-                        let corner_left = x >= rect.left && x < rect.left + corner;
-                        let corner_right = x <= rect.right && x > rect.right - corner;
-                        let corner_top = y >= rect.top && y < rect.top + corner;
-                        let corner_bottom = y <= rect.bottom && y > rect.bottom - corner;
+                    let corner_left = x >= rect.left && x < rect.left + corner;
+                    let corner_right = x <= rect.right && x > rect.right - corner;
+                    let corner_top = y >= rect.top && y < rect.top + corner;
+                    let corner_bottom = y <= rect.bottom && y > rect.bottom - corner;
 
-                        if corner_top && corner_left {
-                            return HTTOPLEFT as LRESULT;
-                        }
-                        if corner_top && corner_right {
-                            return HTTOPRIGHT as LRESULT;
-                        }
-                        if corner_bottom && corner_left {
-                            return HTBOTTOMLEFT as LRESULT;
-                        }
-                        if corner_bottom && corner_right {
-                            return HTBOTTOMRIGHT as LRESULT;
-                        }
-                        if on_left {
-                            return HTLEFT as LRESULT;
-                        }
-                        if on_right {
-                            return HTRIGHT as LRESULT;
-                        }
-                        if on_top {
-                            return HTTOP as LRESULT;
-                        }
-                        if on_bottom {
-                            return HTBOTTOM as LRESULT;
-                        }
+                    if corner_top && corner_left {
+                        return HTTOPLEFT as LRESULT;
+                    }
+                    if corner_top && corner_right {
+                        return HTTOPRIGHT as LRESULT;
+                    }
+                    if corner_bottom && corner_left {
+                        return HTBOTTOMLEFT as LRESULT;
+                    }
+                    if corner_bottom && corner_right {
+                        return HTBOTTOMRIGHT as LRESULT;
+                    }
+                    if on_left {
+                        return HTLEFT as LRESULT;
+                    }
+                    if on_right {
+                        return HTRIGHT as LRESULT;
+                    }
+                    if on_top {
+                        return HTTOP as LRESULT;
+                    }
+                    if on_bottom {
+                        return HTBOTTOM as LRESULT;
                     }
                 }
             }

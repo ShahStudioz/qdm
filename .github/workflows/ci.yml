@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 1: Formatting, Linting, and Tests
+  # Runs on Ubuntu (fast & cheap). Catches style issues, code smells, and
+  # regressions before the cross-platform matrix even starts.
+  # ─────────────────────────────────────────────────────────────────────────────
+  quality:
+    name: Code Quality & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libssl-dev \
+            pkg-config \
+            libasound2-dev \
+            libxdo-dev
+
+      - name: Check Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint with Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run Tests
+        run: cargo test --all-targets
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 2: Cross-Platform Compilation Check
+  # Ensures a contributor working on one OS doesn't accidentally introduce
+  # platform-specific breakage. Uses `cargo check` instead of `cargo build`
+  # to save CI minutes (no linking, no binary output).
+  # ─────────────────────────────────────────────────────────────────────────────
+  platform-check:
+    name: Compile Check (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux
+          - os: macos-latest
+            name: macOS
+          - os: windows-latest
+            name: Windows
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libssl-dev \
+            pkg-config \
+            libasound2-dev \
+            libxdo-dev
+
+      - name: Cargo Check
+        run: cargo check --all-targets

@@ -7,7 +7,10 @@ use crate::app::{Message, QdmApp};
 use iced::Task;
 use std::time::Instant;
 
-pub(crate) fn handle_window_id_retrieved(app: &mut QdmApp, id_opt: Option<iced::window::Id>) -> Task<Message> {
+pub(crate) fn handle_window_id_retrieved(
+    app: &mut QdmApp,
+    id_opt: Option<iced::window::Id>,
+) -> Task<Message> {
     if let Some(id) = id_opt {
         app.window_id = Some(id);
         setup_native_resize(id)
@@ -16,15 +19,17 @@ pub(crate) fn handle_window_id_retrieved(app: &mut QdmApp, id_opt: Option<iced::
     }
 }
 
-pub(crate) fn handle_window_event(app: &mut QdmApp, id: iced::window::Id, event: iced::window::Event) -> Task<Message> {
+pub(crate) fn handle_window_event(
+    app: &mut QdmApp,
+    id: iced::window::Id,
+    event: iced::window::Event,
+) -> Task<Message> {
     app.window_id = Some(id);
     match event {
-        iced::window::Event::Opened { .. } => {
-            Task::batch([
-                iced::window::get_maximized(id).map(Message::WindowMaximizedResult),
-                setup_native_resize(id),
-            ])
-        }
+        iced::window::Event::Opened { .. } => Task::batch([
+            iced::window::get_maximized(id).map(Message::WindowMaximizedResult),
+            setup_native_resize(id),
+        ]),
         iced::window::Event::Resized(_) => {
             let is_max = crate::core::window_sys::windows::is_window_maximized();
             if app.is_maximized != is_max {
@@ -32,9 +37,7 @@ pub(crate) fn handle_window_event(app: &mut QdmApp, id: iced::window::Id, event:
             }
             Task::none()
         }
-        iced::window::Event::CloseRequested => {
-            handle_window_close(app)
-        }
+        iced::window::Event::CloseRequested => handle_window_close(app),
         _ => Task::none(),
     }
 }
@@ -58,7 +61,10 @@ fn setup_native_resize(_id: iced::window::Id) -> Task<Message> {
     Task::none()
 }
 
-pub(crate) fn handle_window_maximized_result(app: &mut QdmApp, is_maximized: bool) -> Task<Message> {
+pub(crate) fn handle_window_maximized_result(
+    app: &mut QdmApp,
+    is_maximized: bool,
+) -> Task<Message> {
     app.is_maximized = is_maximized;
     crate::core::window_sys::windows::set_window_maximized(is_maximized);
     Task::none()

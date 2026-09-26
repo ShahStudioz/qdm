@@ -8,9 +8,10 @@ pub fn set_launch_at_startup(enabled: bool) -> Result<(), String> {
     {
         use std::process::Command;
 
-        let exe_path = std::env::current_exe()
-            .map_err(|e| format!("Failed to get executable path: {}", e))?;
-        let exe_str = exe_path.to_str()
+        let exe_path =
+            std::env::current_exe().map_err(|e| format!("Failed to get executable path: {}", e))?;
+        let exe_str = exe_path
+            .to_str()
             .ok_or_else(|| "Invalid UTF-8 in executable path".to_string())?;
 
         if enabled {
@@ -101,7 +102,10 @@ pub fn launch_installer(installer_path: &std::path::Path) -> Result<(), String> 
     use std::process::Command;
 
     if !installer_path.exists() {
-        return Err(format!("Installer file does not exist at {:?}", installer_path));
+        return Err(format!(
+            "Installer file does not exist at {:?}",
+            installer_path
+        ));
     }
 
     #[cfg(target_os = "windows")]
@@ -146,4 +150,3 @@ pub fn launch_installer(installer_path: &std::path::Path) -> Result<(), String> 
         Err("Unsupported operating system for auto-install".to_string())
     }
 }
-

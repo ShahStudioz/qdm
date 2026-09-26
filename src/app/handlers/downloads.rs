@@ -114,13 +114,12 @@ pub(crate) fn handle_cancel_download(app: &mut QdmApp, id: usize) -> Task<Messag
                 engine.cancel(id).await;
                 if action == settings::DeleteAction::DeleteFromDisk {
                     if let Some(item) = item_opt {
-                        let target = std::path::Path::new(&item.save_path)
-                            .join(&item.filename);
+                        let target = std::path::Path::new(&item.save_path).join(&item.filename);
                         let temp_target = std::path::Path::new(&item.save_path)
                             .join(format!("{}.qdmdownload", item.filename));
                         let staging_dir = std::path::Path::new(&item.save_path)
                             .join(format!(".qdmdownload_{}", item.id));
-                            
+
                         let paths_to_remove = [target, temp_target, staging_dir];
                         for path in &paths_to_remove {
                             if path.exists() {
@@ -158,8 +157,15 @@ pub(crate) fn open_path_native(path: &std::path::Path) {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::ffi::OsStrExt;
-        let wide_path: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
-        let wide_op: Vec<u16> = std::ffi::OsStr::new("open").encode_wide().chain(std::iter::once(0)).collect();
+        let wide_path: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let wide_op: Vec<u16> = std::ffi::OsStr::new("open")
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
         unsafe {
             windows_sys::Win32::UI::Shell::ShellExecuteW(
                 0,
@@ -173,15 +179,11 @@ pub(crate) fn open_path_native(path: &std::path::Path) {
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = std::process::Command::new("open")
-            .arg(path)
-            .spawn();
+        let _ = std::process::Command::new("open").arg(path).spawn();
     }
     #[cfg(target_os = "linux")]
     {
-        let _ = std::process::Command::new("xdg-open")
-            .arg(path)
-            .spawn();
+        let _ = std::process::Command::new("xdg-open").arg(path).spawn();
     }
 }
 
@@ -233,8 +235,10 @@ pub(crate) fn handle_open_item(app: &mut QdmApp, id: usize) -> Task<Message> {
                     }
 
                     // Check for existing media file or folder in save_path or staging
-                    let save_target = std::path::PathBuf::from(&item.save_path).join(&item.filename);
-                    let staging_base = std::path::PathBuf::from(&item.save_path).join(format!(".qdmdownload_{}", item.id));
+                    let save_target =
+                        std::path::PathBuf::from(&item.save_path).join(&item.filename);
+                    let staging_base = std::path::PathBuf::from(&item.save_path)
+                        .join(format!(".qdmdownload_{}", item.id));
                     let staging_target = staging_base.join(&item.filename);
 
                     let path_to_open = if save_target.exists() {
@@ -243,7 +247,8 @@ pub(crate) fn handle_open_item(app: &mut QdmApp, id: usize) -> Task<Message> {
                         Some(staging_target)
                     } else if staging_base.exists() {
                         if let Ok(entries) = std::fs::read_dir(&staging_base) {
-                            let first_file = entries.flatten()
+                            let first_file = entries
+                                .flatten()
                                 .find(|e| !e.file_name().to_string_lossy().starts_with('.'))
                                 .map(|e| e.path());
                             first_file.or(Some(staging_base))
@@ -420,47 +425,78 @@ pub(crate) fn handle_background_metadata_fetched(
                         }
 
                         // Try to improve generic or extensionless filenames using Content-Disposition
-                        let needs_better_name = item.filename == "download.file"
-                            || !item.filename.contains('.');
+                        let needs_better_name =
+                            item.filename == "download.file" || !item.filename.contains('.');
                         if needs_better_name {
                             if let Some(ref cd) = meta.content_disposition {
                                 let better_name =
-                                    crate::views::dialogues::add_dialogue::extract_filename(item.get_url(), Some(cd));
+                                    crate::views::dialogues::add_dialogue::extract_filename(
+                                        item.get_url(),
+                                        Some(cd),
+                                    );
                                 if better_name != "download.file" {
                                     item.filename = better_name;
                                 }
                             }
                         }
-                        item.file_type = crate::models::download::FileType::from_filename(&item.filename);
+                        item.file_type =
+                            crate::models::download::FileType::from_filename(&item.filename);
                     }
                     crate::services::engine::ProbeResult::Torrent(info) => {
-                        let is_generic = item.filename == "Torrent Download" || item.filename.is_empty();
+                        let is_generic =
+                            item.filename == "Torrent Download" || item.filename.is_empty();
                         if is_generic {
                             let base_name = info.name;
-                            let is_duplicate_in_list = existing_items.iter().any(|(p, f)| p == &item.save_path && f == &base_name.to_lowercase());
-                            let conflict = is_duplicate_in_list || if info.is_folder {
-                                crate::core::utils::paths::folder_exists(&item.save_path, &base_name)
-                            } else {
-                                crate::core::utils::paths::file_exists_or_downloading(&item.save_path, &base_name)
-                            };
+                            let is_duplicate_in_list = existing_items.iter().any(|(p, f)| {
+                                p == &item.save_path && f == &base_name.to_lowercase()
+                            });
+                            let conflict = is_duplicate_in_list
+                                || if info.is_folder {
+                                    crate::core::utils::paths::folder_exists(
+                                        &item.save_path,
+                                        &base_name,
+                                    )
+                                } else {
+                                    crate::core::utils::paths::file_exists_or_downloading(
+                                        &item.save_path,
+                                        &base_name,
+                                    )
+                                };
                             if conflict {
                                 item.filename = if info.is_folder {
-                                    let mut candidate = crate::core::utils::paths::generate_unique_folder_name(&item.save_path, &base_name);
+                                    let mut candidate =
+                                        crate::core::utils::paths::generate_unique_folder_name(
+                                            &item.save_path,
+                                            &base_name,
+                                        );
                                     let mut counter = 1u32;
-                                    while existing_items.iter().any(|(p, f)| p == &item.save_path && f == &candidate.to_lowercase()) {
+                                    while existing_items.iter().any(|(p, f)| {
+                                        p == &item.save_path && f == &candidate.to_lowercase()
+                                    }) {
                                         candidate = format!("{} ({})", base_name, counter);
                                         counter += 1;
                                     }
                                     candidate
                                 } else {
-                                    let mut candidate = crate::core::utils::paths::generate_unique_filename(&item.save_path, &base_name);
+                                    let mut candidate =
+                                        crate::core::utils::paths::generate_unique_filename(
+                                            &item.save_path,
+                                            &base_name,
+                                        );
                                     let path = std::path::Path::new(&base_name);
-                                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("download");
+                                    let stem = path
+                                        .file_stem()
+                                        .and_then(|s| s.to_str())
+                                        .unwrap_or("download");
                                     let ext = path.extension().and_then(|s| s.to_str());
                                     let mut counter = 1u32;
-                                    while existing_items.iter().any(|(p, f)| p == &item.save_path && f == &candidate.to_lowercase()) {
+                                    while existing_items.iter().any(|(p, f)| {
+                                        p == &item.save_path && f == &candidate.to_lowercase()
+                                    }) {
                                         candidate = match ext {
-                                            Some(extension) => format!("{} ({}).{}", stem, counter, extension),
+                                            Some(extension) => {
+                                                format!("{} ({}).{}", stem, counter, extension)
+                                            }
                                             None => format!("{} ({})", stem, counter),
                                         };
                                         counter += 1;
@@ -478,7 +514,9 @@ pub(crate) fn handle_background_metadata_fetched(
                         }
                         let mut has_media = false;
                         for f in &info.files {
-                            if crate::models::download::FileType::from_filename(&f.path) == crate::models::download::FileType::Media {
+                            if crate::models::download::FileType::from_filename(&f.path)
+                                == crate::models::download::FileType::Media
+                            {
                                 has_media = true;
                                 break;
                             }
@@ -486,12 +524,16 @@ pub(crate) fn handle_background_metadata_fetched(
                         if has_media {
                             item.file_type = crate::models::download::FileType::Media;
                         } else {
-                            item.file_type = crate::models::download::FileType::from_filename(&item.filename);
+                            item.file_type =
+                                crate::models::download::FileType::from_filename(&item.filename);
                         }
                     }
                 }
-                
-                if matches!(item.state, crate::models::download::DownloadState::FetchingMetadata) {
+
+                if matches!(
+                    item.state,
+                    crate::models::download::DownloadState::FetchingMetadata
+                ) {
                     item.state = crate::models::download::DownloadState::Downloading {
                         downloaded_bytes: item.downloaded_bytes,
                         total_bytes: item.total_bytes,

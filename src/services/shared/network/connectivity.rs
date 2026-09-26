@@ -3,8 +3,8 @@
 //! Provides fast, lightweight asynchronous network reachability checks to distinguish
 //! between transient network outages (e.g. Wi-Fi disconnection / offline) and remote server errors.
 
-use std::time::Duration;
 use std::net::SocketAddr;
+use std::time::Duration;
 use tokio::net::TcpStream;
 
 pub struct ConnectivityMonitor;
@@ -23,7 +23,10 @@ impl ConnectivityMonitor {
         ];
 
         for addr in targets {
-            if tokio::time::timeout(Duration::from_millis(1200), TcpStream::connect(addr)).await.is_ok_and(|res| res.is_ok()) {
+            if tokio::time::timeout(Duration::from_millis(1200), TcpStream::connect(addr))
+                .await
+                .is_ok_and(|res| res.is_ok())
+            {
                 return true;
             }
         }
@@ -34,7 +37,11 @@ impl ConnectivityMonitor {
             .build();
 
         if let Ok(client) = client {
-            if let Ok(resp) = client.get("http://cp.cloudflare.com/generate_204").send().await {
+            if let Ok(resp) = client
+                .get("http://cp.cloudflare.com/generate_204")
+                .send()
+                .await
+            {
                 if resp.status().is_success() || resp.status().as_u16() == 204 {
                     return true;
                 }

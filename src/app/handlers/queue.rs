@@ -14,9 +14,7 @@ use iced::Task;
 /// the download scheduler's active window.
 pub(crate) fn handle_second_tick(app: &mut QdmApp) -> Task<Message> {
     // 1. Conflict dialog auto-action countdown
-    if app.conflict_dialog.is_open
-        && app.conflict_dialog.tick_second()
-    {
+    if app.conflict_dialog.is_open && app.conflict_dialog.tick_second() {
         return app.update(Message::ConflictDialogueMessages(
             conflict_dialogue::ConflictDialogMessage::AutoRenameChosen,
         ));
@@ -78,7 +76,9 @@ pub(crate) fn handle_second_tick(app: &mut QdmApp) -> Task<Message> {
             }
             Task::none()
         }
-        crate::services::shared::schedule::SchedulerTickAction::TriggerPowerAction(power_action) => {
+        crate::services::shared::schedule::SchedulerTickAction::TriggerPowerAction(
+            power_action,
+        ) => {
             app.schedule_power_action_triggered = true;
             crate::services::shared::schedule::SchedulerService::execute_power_action(power_action);
             Task::none()

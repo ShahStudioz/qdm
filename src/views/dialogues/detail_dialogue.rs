@@ -149,7 +149,9 @@ pub fn view<'a>(
         }
         DownloadState::Completed => ("Completed".to_string(), colors::SUCCESS),
         DownloadState::Paused { .. } => ("Paused".to_string(), colors::WARNING),
-        DownloadState::WaitingForNetwork { .. } => ("Waiting for Network".to_string(), colors::WARNING),
+        DownloadState::WaitingForNetwork { .. } => {
+            ("Waiting for Network".to_string(), colors::WARNING)
+        }
         DownloadState::Failed { .. } => ("Failed".to_string(), colors::ERROR),
     };
 
@@ -226,9 +228,11 @@ pub fn view<'a>(
             .font(styles::BOLD_FONT)
             .color(colors::TEXT_PRIMARY),
         row![
-            text(format_bytes(item.total_bytes.unwrap_or(item.downloaded_bytes)))
-                .size(11)
-                .color(colors::TEXT_MUTED),
+            text(format_bytes(
+                item.total_bytes.unwrap_or(item.downloaded_bytes)
+            ))
+            .size(11)
+            .color(colors::TEXT_MUTED),
             text("•").size(11).color(colors::TEXT_MUTED),
             download_type_badge,
         ]
@@ -269,7 +273,9 @@ pub fn view<'a>(
         }
         DownloadState::Completed => ("Done".to_string(), "Finished".to_string()),
         DownloadState::Paused { .. } => ("Paused".to_string(), "--".to_string()),
-        DownloadState::WaitingForNetwork { .. } => ("Reconnecting...".to_string(), "--".to_string()),
+        DownloadState::WaitingForNetwork { .. } => {
+            ("Reconnecting...".to_string(), "--".to_string())
+        }
         DownloadState::Failed { .. } => ("Error".to_string(), "--".to_string()),
         _ => ("--".to_string(), "--".to_string()),
     };
@@ -279,14 +285,19 @@ pub fn view<'a>(
             "{:.1}% ({} / {})",
             progress_pct,
             format_bytes(item.downloaded_bytes),
-            item.total_bytes.map(format_bytes).unwrap_or_else(|| "Unknown".to_string())
+            item.total_bytes
+                .map(format_bytes)
+                .unwrap_or_else(|| "Unknown".to_string())
         ))
         .size(11)
         .font(styles::MONO_FONT)
         .color(colors::TEXT_PRIMARY),
         Space::with_width(Length::Fill),
         icon(icons::ICON_DOWNLOAD).size(11).color(colors::PRIMARY),
-        text(speed_text).size(11).font(styles::MONO_FONT).color(colors::TEXT_PRIMARY),
+        text(speed_text)
+            .size(11)
+            .font(styles::MONO_FONT)
+            .color(colors::TEXT_PRIMARY),
     ]
     .spacing(6)
     .align_y(Alignment::Center);
@@ -308,7 +319,12 @@ pub fn view<'a>(
     metrics_row = metrics_row
         .push(Space::with_width(8))
         .push(icon(icons::ICON_CLOCK).size(11).color(colors::TEXT_MUTED))
-        .push(text(eta_text).size(11).font(styles::MONO_FONT).color(colors::TEXT_MUTED));
+        .push(
+            text(eta_text)
+                .size(11)
+                .font(styles::MONO_FONT)
+                .color(colors::TEXT_MUTED),
+        );
 
     let progress_box = container(column![pbar, metrics_row].spacing(8))
         .padding([6, 20])
@@ -316,7 +332,9 @@ pub fn view<'a>(
 
     // --- Tab Switcher ---
     let tab_streams_label = match &item.download_type {
-        DownloadType::Http(h) | DownloadType::Update(h) => format!("Streams & Connections ({})", h.chunks.len()),
+        DownloadType::Http(h) | DownloadType::Update(h) => {
+            format!("Streams & Connections ({})", h.chunks.len())
+        }
         DownloadType::Torrent(_) => "Swarm & Diagnostics".to_string(),
     };
 
@@ -354,7 +372,9 @@ pub fn view<'a>(
     } else {
         styles::ghost_button_style
     })
-    .on_press(DetailDialogueMessage::SelectTab(DetailDialogTab::Connections));
+    .on_press(DetailDialogueMessage::SelectTab(
+        DetailDialogTab::Connections,
+    ));
 
     let tab_bar = container(
         row![tab_overview_btn, tab_streams_btn]
@@ -400,17 +420,18 @@ pub fn view<'a>(
             ..Default::default()
         });
 
-    let copy_feedback_el: Element<'a, DetailDialogueMessage> = if let Some(fb) = &state.copy_feedback {
-        row![
-            icon(icons::ICON_CHECK).size(12).color(colors::SUCCESS),
-            text(fb).size(12).color(colors::SUCCESS),
-        ]
-        .spacing(6)
-        .align_y(Alignment::Center)
-        .into()
-    } else {
-        Space::with_width(1).into()
-    };
+    let copy_feedback_el: Element<'a, DetailDialogueMessage> =
+        if let Some(fb) = &state.copy_feedback {
+            row![
+                icon(icons::ICON_CHECK).size(12).color(colors::SUCCESS),
+                text(fb).size(12).color(colors::SUCCESS),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center)
+            .into()
+        } else {
+            Space::with_width(1).into()
+        };
 
     let open_folder_btn = button(
         row![
@@ -567,7 +588,11 @@ fn render_overview_tab<'a>(item: &'a DownloadItem) -> Element<'a, DetailDialogue
     };
 
     let (resumable_val, etag_val, last_mod_val) = if let Some(http) = item.http_meta() {
-        let res = if http.resumable { "Yes (Byte Ranges)" } else { "No (Single stream)" };
+        let res = if http.resumable {
+            "Yes (Byte Ranges)"
+        } else {
+            "No (Single stream)"
+        };
         let et = http.etag.as_deref().unwrap_or("None");
         let lm = http.last_modified.as_deref().unwrap_or("None");
         (res, et, lm)
@@ -589,9 +614,19 @@ fn render_overview_tab<'a>(item: &'a DownloadItem) -> Element<'a, DetailDialogue
 
     let specs_col = column![
         make_spec_row("Connections:", connections_val, "Resumable:", resumable_val),
-        make_spec_row("Speed Limit:", speed_limit_val, "Category:", file_category_val),
+        make_spec_row(
+            "Speed Limit:",
+            speed_limit_val,
+            "Category:",
+            file_category_val
+        ),
         make_spec_row("ETag:", etag_val, "Last-Modified:", last_mod_val),
-        make_spec_row("Date Added:", added_date_val, "Completed At:", completed_date_val),
+        make_spec_row(
+            "Date Added:",
+            added_date_val,
+            "Completed At:",
+            completed_date_val
+        ),
     ]
     .spacing(8);
 
@@ -636,7 +671,10 @@ fn render_overview_tab<'a>(item: &'a DownloadItem) -> Element<'a, DetailDialogue
                     )),
                 ]
                 .align_y(Alignment::Center),
-                text(hash).size(11).font(styles::MONO_FONT).color(colors::SUCCESS),
+                text(hash)
+                    .size(11)
+                    .font(styles::MONO_FONT)
+                    .color(colors::SUCCESS),
             ]
             .spacing(6),
         )
@@ -684,7 +722,11 @@ fn render_http_connections_tab<'a>(
                 text(format!("{} Streaming", active_chunks))
                     .size(13)
                     .font(styles::BOLD_FONT)
-                    .color(if active_chunks > 0 { colors::PRIMARY } else { colors::TEXT_MUTED }),
+                    .color(if active_chunks > 0 {
+                        colors::PRIMARY
+                    } else {
+                        colors::TEXT_MUTED
+                    }),
             ]
             .spacing(2),
             Space::with_width(Length::Fill),
@@ -709,14 +751,18 @@ fn render_http_connections_tab<'a>(
     if http.chunks.is_empty() {
         let empty_msg = container(
             column![
-                icon(icons::ICON_MICROCHIP).size(26).color(colors::TEXT_MUTED),
+                icon(icons::ICON_MICROCHIP)
+                    .size(26)
+                    .color(colors::TEXT_MUTED),
                 Space::with_height(6),
                 text("No active chunk streams allocated yet.")
                     .size(12)
                     .color(colors::TEXT_MUTED),
-                text("Multi-stream worker connections will appear here once active transfer begins.")
-                    .size(11)
-                    .color(colors::TEXT_MUTED),
+                text(
+                    "Multi-stream worker connections will appear here once active transfer begins."
+                )
+                .size(11)
+                .color(colors::TEXT_MUTED),
             ]
             .align_x(Alignment::Center),
         )
@@ -768,9 +814,7 @@ fn render_http_connections_tab<'a>(
             .height(Length::Fixed(4.0))
             .style(styles::progress_bar_style_with_color(chunk_badge_color));
 
-        let source_display = if chunk.url.is_empty() {
-            "Primary Server".to_string()
-        } else if chunk.url == http.primary_url.url {
+        let source_display = if chunk.url.is_empty() || chunk.url == http.primary_url.url {
             "Primary Server".to_string()
         } else {
             format!("Mirror: {}", truncate_str(&chunk.url, 45))
@@ -807,10 +851,14 @@ fn render_http_connections_tab<'a>(
                 row![
                     text(source_display).size(10).color(colors::TEXT_MUTED),
                     Space::with_width(Length::Fill),
-                    text(format!("{} / {}", format_bytes(chunk_done), format_bytes(chunk_total)))
-                        .size(10)
-                        .font(styles::MONO_FONT)
-                        .color(colors::TEXT_MUTED),
+                    text(format!(
+                        "{} / {}",
+                        format_bytes(chunk_done),
+                        format_bytes(chunk_total)
+                    ))
+                    .size(10)
+                    .font(styles::MONO_FONT)
+                    .color(colors::TEXT_MUTED),
                 ]
                 .align_y(Alignment::Center),
                 text(range_display)
@@ -843,7 +891,10 @@ fn render_torrent_swarm_tab<'a>(
         column![
             row![
                 icon(icons::ICON_USERS).size(12).color(colors::PRIMARY),
-                text("CONNECTED PEERS").size(9).font(styles::BOLD_FONT).color(colors::TEXT_MUTED),
+                text("CONNECTED PEERS")
+                    .size(9)
+                    .font(styles::BOLD_FONT)
+                    .color(colors::TEXT_MUTED),
             ]
             .spacing(4)
             .align_y(Alignment::Center),
@@ -862,7 +913,10 @@ fn render_torrent_swarm_tab<'a>(
         column![
             row![
                 icon(icons::ICON_SERVER).size(12).color(colors::SUCCESS),
-                text("SEEDS SEEN").size(9).font(styles::BOLD_FONT).color(colors::TEXT_MUTED),
+                text("SEEDS SEEN")
+                    .size(9)
+                    .font(styles::BOLD_FONT)
+                    .color(colors::TEXT_MUTED),
             ]
             .spacing(4)
             .align_y(Alignment::Center),
@@ -881,7 +935,10 @@ fn render_torrent_swarm_tab<'a>(
         column![
             row![
                 icon(icons::ICON_UPLOAD).size(12).color(colors::TORRENT),
-                text("UPLOAD SPEED").size(9).font(styles::BOLD_FONT).color(colors::TEXT_MUTED),
+                text("UPLOAD SPEED")
+                    .size(9)
+                    .font(styles::BOLD_FONT)
+                    .color(colors::TEXT_MUTED),
             ]
             .spacing(4)
             .align_y(Alignment::Center),
@@ -988,9 +1045,7 @@ fn render_torrent_swarm_tab<'a>(
                 .size(11)
                 .font(styles::BOLD_FONT)
                 .color(colors::TEXT_MUTED),
-            text(struct_val)
-                .size(11)
-                .color(colors::TEXT_PRIMARY),
+            text(struct_val).size(11).color(colors::TEXT_PRIMARY),
         ]
         .spacing(8)
         .align_y(Alignment::Center),
@@ -1013,14 +1068,20 @@ fn make_spec_row<'a>(
 ) -> Element<'a, DetailDialogueMessage> {
     row![
         row![
-            text(k1).size(11).font(styles::BOLD_FONT).color(colors::TEXT_MUTED),
+            text(k1)
+                .size(11)
+                .font(styles::BOLD_FONT)
+                .color(colors::TEXT_MUTED),
             text(v1.into()).size(11).color(colors::TEXT_PRIMARY),
         ]
         .spacing(6)
         .width(Length::FillPortion(1))
         .align_y(Alignment::Center),
         row![
-            text(k2).size(11).font(styles::BOLD_FONT).color(colors::TEXT_MUTED),
+            text(k2)
+                .size(11)
+                .font(styles::BOLD_FONT)
+                .color(colors::TEXT_MUTED),
             text(v2.into()).size(11).color(colors::TEXT_PRIMARY),
         ]
         .spacing(6)

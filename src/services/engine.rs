@@ -1,10 +1,10 @@
 use crate::models::download::{DownloadItem, DownloadType};
-use crate::services::torrent::engine::TorrentEngine;
 use crate::services::http::metadata::FileMetadata;
 use crate::services::http::EngineUiEvent;
+use crate::services::torrent::engine::TorrentEngine;
 
-use tokio::sync::broadcast;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 
 #[derive(Clone)]
 pub struct AppEngine {
@@ -52,7 +52,7 @@ impl AppEngine {
             ui_event_tx,
         }
     }
-    
+
     pub async fn init_torrent(&self, dir: std::path::PathBuf) -> Result<(), String> {
         let mut lock = self.torrent.write().await;
         if lock.is_none() {
@@ -77,10 +77,14 @@ impl AppEngine {
 
     pub async fn start_or_resume(&self, item: DownloadItem, play_media: bool) {
         match item.download_type {
-            DownloadType::Http(_) | DownloadType::Update(_) => self.http.start_or_resume(item).await,
+            DownloadType::Http(_) | DownloadType::Update(_) => {
+                self.http.start_or_resume(item).await
+            }
             DownloadType::Torrent(_) => {
                 if self.torrent.read().await.is_none() {
-                    let dir = std::path::PathBuf::from(crate::core::utils::paths::get_default_download_dir());
+                    let dir = std::path::PathBuf::from(
+                        crate::core::utils::paths::get_default_download_dir(),
+                    );
                     let _ = self.init_torrent(dir).await;
                 }
                 if let Some(engine) = self.torrent.read().await.as_ref() {
@@ -116,7 +120,8 @@ impl AppEngine {
         if is_torrent {
             // Check if torrent engine is ready; if not, initialize on-demand
             if self.torrent.read().await.is_none() {
-                let dir = std::path::PathBuf::from(crate::core::utils::paths::get_default_download_dir());
+                let dir =
+                    std::path::PathBuf::from(crate::core::utils::paths::get_default_download_dir());
                 if let Err(e) = self.init_torrent(dir).await {
                     return Err(format!("Torrent engine could not be initialized: {}", e));
                 }
@@ -126,7 +131,12 @@ impl AppEngine {
             if let Some(engine) = engine_opt.as_ref() {
                 let resp = engine.probe_metadata(url).await?;
                 if let librqbit::AddTorrentResponse::ListOnly(list) = resp {
-                    let name = list.info.name().as_ref().map(|s| s.to_string()).unwrap_or_else(|| "Unknown Torrent".to_string());
+                    let name = list
+                        .info
+                        .name()
+                        .as_ref()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "Unknown Torrent".to_string());
                     let mut files = Vec::new();
                     for (idx, f) in list.info.iter_file_details().enumerate() {
                         files.push(TorrentFileInfo {
@@ -145,8 +155,12 @@ impl AppEngine {
                     } else {
                         name
                     };
-                    
-                    return Ok(ProbeResult::Torrent(TorrentInfo { name: final_name, files, is_folder }));
+
+                    return Ok(ProbeResult::Torrent(TorrentInfo {
+                        name: final_name,
+                        files,
+                        is_folder,
+                    }));
                 }
                 Err("Failed to resolve torrent metadata".to_string())
             } else {
