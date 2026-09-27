@@ -84,6 +84,27 @@ Visit **[qdm.shahstudioz.store](https://qdm.shahstudioz.store/#download)** to do
 | **macOS** (x64) | `.dmg` | [Website](https://qdm.shahstudioz.store/#download) · [GitHub](https://github.com/ShahStudioz/qdm/releases/latest) |
 | **macOS** (Apple Silicon) | `.dmg` | [Website](https://qdm.shahstudioz.store/#download) · [GitHub](https://github.com/ShahStudioz/qdm/releases/latest) |
 
+### 🍎 macOS Users — Important Note
+
+Since QDM is not signed with an Apple Developer certificate, macOS Gatekeeper may show **"QDM is damaged and can't be opened"** or **"QDM can't be opened because Apple cannot check it for malicious software"** when you first launch the app. This is expected for open-source software distributed outside the Mac App Store.
+
+**To open QDM, use one of these methods:**
+
+**Method 1 — Right-click to Open (easiest)**
+1. Open Finder and navigate to the QDM app.
+2. **Right-click** (or Control-click) on **QDM.app** and select **Open**.
+3. Click **Open** in the confirmation dialog. You only need to do this once.
+
+**Method 2 — Remove the quarantine attribute (Terminal)**
+```bash
+xattr -dr com.apple.quarantine /Applications/QDM.app
+```
+
+**Method 3 — System Settings**
+1. Go to **System Settings → Privacy & Security**.
+2. Scroll down to the **Security** section.
+3. You should see a message about QDM being blocked — click **"Open Anyway"**.
+
 ---
 
 ## Building from Source
