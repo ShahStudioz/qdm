@@ -94,6 +94,43 @@ jobs:
       - name: Package with cargo-packager
         run: cargo packager --release --target ${{ matrix.target }} --formats ${{ matrix.formats }}
 
+      - name: Ad-hoc codesign macOS app bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          # Find the .app bundle produced by cargo-packager
+          APP_BUNDLE=$(find target/${{ matrix.target }}/release -name "*.app" -type d | head -n 1)
+          if [ -z "$APP_BUNDLE" ]; then
+            APP_BUNDLE=$(find dist -name "*.app" -type d | head -n 1)
+          fi
+          if [ -z "$APP_BUNDLE" ]; then
+            echo "::warning::No .app bundle found to sign, skipping codesign"
+            exit 0
+          fi
+          echo "Signing: $APP_BUNDLE"
+          # Ad-hoc sign with hardened runtime
+          codesign --force --deep --sign "-" --options runtime "$APP_BUNDLE"
+          codesign --verify --verbose "$APP_BUNDLE"
+          echo "Ad-hoc codesign complete"
+
+          # Re-create the DMG with the signed app so the distributed DMG contains the signed binary
+          DMG_FILE=$(find dist -name "*.dmg" -type f | head -n 1)
+          if [ -n "$DMG_FILE" ]; then
+            echo "Re-creating DMG with signed app: $DMG_FILE"
+            MOUNT_DIR=$(mktemp -d)
+            hdiutil attach "$DMG_FILE" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
+            STAGING_DIR=$(mktemp -d)
+            cp -R "$MOUNT_DIR"/* "$STAGING_DIR"/ 2>/dev/null || true
+            # Replace the unsigned app with the signed one
+            rm -rf "$STAGING_DIR"/*.app
+            cp -R "$APP_BUNDLE" "$STAGING_DIR"/
+            hdiutil detach "$MOUNT_DIR" -quiet
+            rm "$DMG_FILE"
+            hdiutil create -volname "QDM" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_FILE"
+            rm -rf "$MOUNT_DIR" "$STAGING_DIR"
+            echo "DMG re-created with signed app"
+          fi
+
       - name: Stage Artifacts & Compute Checksums (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
