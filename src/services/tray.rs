@@ -19,6 +19,21 @@ pub struct TrayManager {
 
 impl TrayManager {
     pub fn new(logo_rgba: Vec<u8>, width: u32, height: u32) -> Option<Self> {
+        // On Linux, `tray-icon` depends on `libappindicator-sys` which panics
+        // if the native appindicator/ayatana library is missing or incompatible.
+        // Wrap in catch_unwind so the app degrades gracefully without a tray.
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Self::try_build(logo_rgba, width, height)
+        })) {
+            Ok(result) => result,
+            Err(_) => {
+                eprintln!("Warning: System tray initialization failed (missing library). Running without tray icon.");
+                None
+            }
+        }
+    }
+
+    fn try_build(logo_rgba: Vec<u8>, width: u32, height: u32) -> Option<Self> {
         let icon = tray_icon::Icon::from_rgba(logo_rgba, width, height).ok()?;
 
         let menu = Menu::new();
