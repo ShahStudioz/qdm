@@ -56,69 +56,159 @@ where
     )
     .on_press(on_drag);
 
-    // 3. Window Control Buttons
-    let min_btn = button(
-        container(icon(icons::ICON_WINDOW_MINIMIZE).size(10))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(Alignment::Center)
-            .align_y(Alignment::Center),
-    )
-    .width(44)
-    .height(32)
-    .padding(0)
-    .style(styles::window_control_button_style)
-    .on_press(on_minimize);
+    // 3. Window Control Buttons (Platform-specific styling, placed on the right side)
+    let controls: Element<'a, Message> = if cfg!(target_os = "macos") {
+        let close_btn = button(
+            container(icon(icons::ICON_WINDOW_CLOSE).size(8))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center),
+        )
+        .width(14)
+        .height(14)
+        .padding(0)
+        .style(styles::mac_traffic_light_button_style(
+            iced::Color::from_rgb(1.0, 0.373, 0.337),   // #FF5F56 (Mac Close Red)
+            iced::Color::from_rgb(1.0, 0.451, 0.420),   // Hover brighter red
+            iced::Color::from_rgb(0.878, 0.267, 0.243), // Pressed deeper red
+        ))
+        .on_press(on_close);
 
-    let max_icon = if is_maximized {
-        icons::ICON_WINDOW_RESTORE
+        let min_btn = button(
+            container(icon(icons::ICON_WINDOW_MINIMIZE).size(8))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center),
+        )
+        .width(14)
+        .height(14)
+        .padding(0)
+        .style(styles::mac_traffic_light_button_style(
+            iced::Color::from_rgb(1.0, 0.741, 0.180),   // #FFBD2E (Mac Minimize Yellow)
+            iced::Color::from_rgb(1.0, 0.788, 0.302),   // Hover brighter yellow
+            iced::Color::from_rgb(0.871, 0.631, 0.137), // Pressed deeper yellow
+        ))
+        .on_press(on_minimize);
+
+        let mac_max_icon = if is_maximized {
+            icons::ICON_WINDOW_RESTORE
+        } else {
+            icons::ICON_PLUS
+        };
+
+        let max_btn = button(
+            container(icon(mac_max_icon).size(8))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center),
+        )
+        .width(14)
+        .height(14)
+        .padding(0)
+        .style(styles::mac_traffic_light_button_style(
+            iced::Color::from_rgb(0.153, 0.788, 0.247), // #27C93F (Mac Maximize Green)
+            iced::Color::from_rgb(0.227, 0.851, 0.322), // Hover brighter green
+            iced::Color::from_rgb(0.102, 0.671, 0.161), // Pressed deeper green
+        ))
+        .on_press(on_toggle_maximize);
+
+        row![Space::with_width(6), close_btn, min_btn, max_btn]
+            .spacing(8)
+            .align_y(Alignment::Center)
+            .into()
     } else {
-        icons::ICON_WINDOW_MAXIMIZE
+        let min_btn = button(
+            container(icon(icons::ICON_WINDOW_MINIMIZE).size(10))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center),
+        )
+        .width(44)
+        .height(32)
+        .padding(0)
+        .style(styles::window_control_button_style)
+        .on_press(on_minimize);
+
+        let max_icon = if is_maximized {
+            icons::ICON_WINDOW_RESTORE
+        } else {
+            icons::ICON_WINDOW_MAXIMIZE
+        };
+
+        let max_btn = button(
+            container(icon(max_icon).size(10))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center),
+        )
+        .width(44)
+        .height(32)
+        .padding(0)
+        .style(styles::window_control_button_style)
+        .on_press(on_toggle_maximize);
+
+        let close_btn = button(
+            container(icon(icons::ICON_WINDOW_CLOSE).size(11))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center),
+        )
+        .width(44)
+        .height(32)
+        .padding(0)
+        .style(styles::window_close_button_style(is_maximized))
+        .on_press(on_close);
+
+        row![min_btn, max_btn, close_btn]
+            .spacing(0)
+            .align_y(Alignment::Center)
+            .into()
     };
 
-    let max_btn = button(
-        container(icon(max_icon).size(10))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(Alignment::Center)
-            .align_y(Alignment::Center),
-    )
-    .width(44)
-    .height(32)
-    .padding(0)
-    .style(styles::window_control_button_style)
-    .on_press(on_toggle_maximize);
+    let bar_row = if cfg!(target_os = "macos") {
+        row![
+            controls,
+            drag_area,
+            left_branding_drag,
+            Space::with_width(14),
+        ]
+        .align_y(Alignment::Center)
+    } else {
+        row![
+            Space::with_width(12),
+            left_branding_drag,
+            drag_area,
+            controls,
+        ]
+        .align_y(Alignment::Center)
+    };
 
-    let close_btn = button(
-        container(icon(icons::ICON_WINDOW_CLOSE).size(11))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(Alignment::Center)
-            .align_y(Alignment::Center),
-    )
-    .width(44)
-    .height(32)
-    .padding(0)
-    .style(styles::window_close_button_style)
-    .on_press(on_close);
-
-    let controls = row![min_btn, max_btn, close_btn]
-        .spacing(0)
-        .align_y(Alignment::Center);
-
-    let bar_row = row![
-        Space::with_width(12),
-        left_branding_drag,
-        drag_area,
-        controls,
-    ]
-    .align_y(Alignment::Center);
+    let top_radius = if is_maximized {
+        0.0
+    } else {
+        styles::WINDOW_INNER_CORNER_RADIUS
+    };
 
     column![container(bar_row)
         .width(Length::Fill)
         .height(Length::Fixed(32.0))
-        .style(|_| container::Style {
+        .style(move |_| container::Style {
             background: Some(iced::Background::Color(colors::SURFACE)),
+            border: iced::Border {
+                radius: iced::border::Radius {
+                    top_left: top_radius,
+                    top_right: top_radius,
+                    bottom_right: 0.0,
+                    bottom_left: 0.0,
+                },
+                ..Default::default()
+            },
             ..Default::default()
         }),]
     .into()

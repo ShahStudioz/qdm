@@ -24,11 +24,13 @@ fn main() -> iced::Result {
     iced::application("Quick Download Manager", QdmApp::update, QdmApp::view)
         .subscription(QdmApp::subscription)
         .theme(QdmApp::theme)
+        .style(QdmApp::style)
         .window(window::Settings {
             size: Size::new(1200.0, 760.0),
             min_size: Some(Size::new(900.0, 600.0)),
             position: window::Position::Centered,
             decorations: false,
+            transparent: true,
             icon: window_icon,
             ..Default::default()
         })

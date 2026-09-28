@@ -16,6 +16,9 @@ pub const MONO_FONT: Font = Font {
     style: iced::font::Style::Normal,
 };
 
+pub const WINDOW_CORNER_RADIUS: f32 = 10.0;
+pub const WINDOW_INNER_CORNER_RADIUS: f32 = 9.0;
+
 // --- Container Styles ---
 
 pub fn card_style(_theme: &Theme) -> container::Style {
@@ -55,11 +58,40 @@ pub fn failed_card_style(_theme: &Theme) -> container::Style {
     }
 }
 
-pub fn sidebar_style(_theme: &Theme) -> container::Style {
-    container::Style {
+pub fn sidebar_style(is_maximized: bool) -> impl Fn(&Theme) -> container::Style {
+    move |_theme: &Theme| container::Style {
         background: Some(Background::Color(colors::SURFACE)),
         text_color: Some(colors::TEXT_PRIMARY),
-        border: Border::default(),
+        border: Border {
+            radius: iced::border::Radius {
+                top_left: 0.0,
+                top_right: 0.0,
+                bottom_right: 0.0,
+                bottom_left: if is_maximized {
+                    0.0
+                } else {
+                    WINDOW_INNER_CORNER_RADIUS
+                },
+            },
+            ..Default::default()
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+pub fn modal_backdrop_style(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.65))),
+        text_color: None,
+        border: Border {
+            radius: iced::border::Radius {
+                top_left: 0.0,
+                top_right: 0.0,
+                bottom_right: WINDOW_INNER_CORNER_RADIUS,
+                bottom_left: WINDOW_INNER_CORNER_RADIUS,
+            },
+            ..Default::default()
+        },
         shadow: Shadow::default(),
     }
 }
@@ -158,17 +190,60 @@ pub fn window_control_button_style(_theme: &Theme, status: button::Status) -> bu
     }
 }
 
-pub fn window_close_button_style(_theme: &Theme, status: button::Status) -> button::Style {
-    let (bg, text_color) = match status {
-        button::Status::Pressed => (Some(Background::Color(colors::ERROR)), colors::TEXT_PRIMARY),
-        button::Status::Hovered => (Some(Background::Color(colors::ERROR)), Color::WHITE),
-        _ => (None, colors::TEXT_MUTED),
-    };
-    button::Style {
-        background: bg,
-        text_color,
-        border: Border::default(),
-        shadow: Shadow::default(),
+pub fn window_close_button_style(
+    is_maximized: bool,
+) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_theme: &Theme, status: button::Status| {
+        let (bg, text_color) = match status {
+            button::Status::Pressed => (
+                Some(Background::Color(colors::ERROR)),
+                colors::TEXT_PRIMARY,
+            ),
+            button::Status::Hovered => (Some(Background::Color(colors::ERROR)), Color::WHITE),
+            _ => (None, colors::TEXT_MUTED),
+        };
+        button::Style {
+            background: bg,
+            text_color,
+            border: Border {
+                radius: iced::border::Radius {
+                    top_left: 0.0,
+                    top_right: if is_maximized {
+                        0.0
+                    } else {
+                        WINDOW_INNER_CORNER_RADIUS
+                    },
+                    bottom_right: 0.0,
+                    bottom_left: 0.0,
+                },
+                ..Default::default()
+            },
+            shadow: Shadow::default(),
+        }
+    }
+}
+
+pub fn mac_traffic_light_button_style(
+    base_color: Color,
+    hover_color: Color,
+    pressed_color: Color,
+) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_theme: &Theme, status: button::Status| {
+        let (bg_color, glyph_color) = match status {
+            button::Status::Pressed => (pressed_color, Color::from_rgba(0.08, 0.04, 0.04, 0.90)),
+            button::Status::Hovered => (hover_color, Color::from_rgba(0.08, 0.04, 0.04, 0.85)),
+            _ => (base_color, Color::from_rgba(0.08, 0.04, 0.04, 0.28)),
+        };
+        button::Style {
+            background: Some(Background::Color(bg_color)),
+            text_color: glyph_color,
+            border: Border {
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.18),
+                width: 1.0,
+                radius: 7.0.into(),
+            },
+            shadow: Shadow::default(),
+        }
     }
 }
 

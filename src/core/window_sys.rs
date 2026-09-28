@@ -11,6 +11,42 @@ pub mod windows {
     static IS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
 
     const SUBCLASS_ID: usize = 4289;
+    const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+    const DWMWCP_DONOTROUND: u32 = 1;
+    const DWMWCP_ROUND: u32 = 2;
+
+    #[repr(C)]
+    struct Margins {
+        cx_left_width: i32,
+        cx_right_width: i32,
+        cy_top_height: i32,
+        cy_bottom_height: i32,
+    }
+
+    #[link(name = "dwmapi")]
+    extern "system" {
+        fn DwmSetWindowAttribute(
+            hwnd: HWND,
+            dwattribute: u32,
+            pvattribute: *const std::ffi::c_void,
+            cbattribute: u32,
+        ) -> i32;
+        fn DwmExtendFrameIntoClientArea(hwnd: HWND, pmarinset: *const Margins) -> i32;
+    }
+
+    unsafe fn apply_dwm_corner_preference(hwnd: HWND, maximized: bool) {
+        let preference: u32 = if maximized {
+            DWMWCP_DONOTROUND
+        } else {
+            DWMWCP_ROUND
+        };
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &preference as *const u32 as *const std::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+        );
+    }
 
     /// Returns whether the window is currently maximized.
     pub fn is_window_maximized() -> bool {
@@ -23,7 +59,7 @@ pub mod windows {
     }
 
     /// Configures the Win32 window to allow border grabbing and resizing
-    /// while remaining borderless and frameless.
+    /// while remaining borderless, frameless, and rounded on Windows 11.
     pub unsafe fn init_borderless_resize(hwnd: isize) {
         if INITIALIZED.swap(true, Ordering::SeqCst) {
             return;
@@ -43,6 +79,18 @@ pub mod windows {
             0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
         );
+
+        // Extend DWM sheet into client area so transparent rounded corners have no white backing
+        let margins = Margins {
+            cx_left_width: -1,
+            cx_right_width: -1,
+            cy_top_height: -1,
+            cy_bottom_height: -1,
+        };
+        let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+
+        // Enable native Windows 11 DWM rounded corners when windowed
+        apply_dwm_corner_preference(hwnd, IsZoomed(hwnd) != 0);
 
         // Subclass using standard safe Win32 Shell API
         SetWindowSubclass(hwnd, Some(subclass_wndproc), SUBCLASS_ID, 0);
@@ -70,12 +118,14 @@ pub mod windows {
                 }
             }
 
-            // 3. Track maximize/restore state synchronously
+            // 3. Track maximize/restore state synchronously and update DWM corner rounding
             WM_SIZE => {
                 if wparam == SIZE_MAXIMIZED as usize {
                     IS_MAXIMIZED.store(true, Ordering::Relaxed);
+                    apply_dwm_corner_preference(hwnd, true);
                 } else if wparam == SIZE_RESTORED as usize {
                     IS_MAXIMIZED.store(false, Ordering::Relaxed);
+                    apply_dwm_corner_preference(hwnd, false);
                 }
             }
 

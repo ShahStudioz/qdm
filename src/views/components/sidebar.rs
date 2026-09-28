@@ -17,6 +17,7 @@ pub enum NavFilter {
 #[allow(clippy::too_many_arguments)]
 pub fn sidebar_view<'a, Message>(
     current_filter: NavFilter,
+    is_maximized: bool,
     downloading_count: usize,
     completed_count: usize,
     failed_count: usize,
@@ -158,7 +159,7 @@ where
     container(content)
         .width(240)
         .height(Length::Fill)
-        .style(styles::sidebar_style)
+        .style(styles::sidebar_style(is_maximized))
         .into()
 }
 

@@ -83,6 +83,7 @@ impl QdmApp {
         // --- Sidebar ---
         let sidebar = sidebar::sidebar_view(
             self.current_filter,
+            self.is_maximized,
             downloading_count,
             completed_count,
             failed_count,
@@ -289,6 +290,7 @@ impl QdmApp {
         container(window_content)
             .width(Length::Fill)
             .height(Length::Fill)
+            .padding(if self.is_maximized { 0 } else { 1 })
             .style(|_| container::Style {
                 background: Some(iced::Background::Color(colors::BACKGROUND)),
                 text_color: Some(colors::TEXT_PRIMARY),
@@ -298,7 +300,7 @@ impl QdmApp {
                     radius: if self.is_maximized {
                         0.0.into()
                     } else {
-                        8.0.into()
+                        styles::WINDOW_CORNER_RADIUS.into()
                     },
                 },
                 ..Default::default()
@@ -309,6 +311,14 @@ impl QdmApp {
     /// Returns the application theme.
     pub fn theme(&self) -> Theme {
         Theme::Dark
+    }
+
+    /// Returns a transparent window appearance so the outer rounded border clips cleanly.
+    pub fn style(&self, _theme: &Theme) -> iced::daemon::Appearance {
+        iced::daemon::Appearance {
+            background_color: iced::Color::TRANSPARENT,
+            text_color: colors::TEXT_PRIMARY,
+        }
     }
 
     /// Builds the schedule status banner shown on the Scheduled tab.

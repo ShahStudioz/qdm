@@ -31,11 +31,18 @@ pub(crate) fn handle_window_event(
             setup_native_resize(id),
         ]),
         iced::window::Event::Resized(_) => {
-            let is_max = crate::core::window_sys::windows::is_window_maximized();
-            if app.is_maximized != is_max {
-                app.is_maximized = is_max;
+            #[cfg(target_os = "windows")]
+            {
+                let is_max = crate::core::window_sys::windows::is_window_maximized();
+                if app.is_maximized != is_max {
+                    app.is_maximized = is_max;
+                }
+                Task::none()
             }
-            Task::none()
+            #[cfg(not(target_os = "windows"))]
+            {
+                iced::window::get_maximized(id).map(Message::WindowMaximizedResult)
+            }
         }
         iced::window::Event::CloseRequested => handle_window_close(app),
         _ => Task::none(),
