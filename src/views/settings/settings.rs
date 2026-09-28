@@ -106,11 +106,17 @@ pub struct SettingsModel {
     #[serde(default)]
     pub active_tab: SettingsTab,
 
+    /// Tracks whether initial first-run setup tasks (e.g. registering OS startup) are pending.
+    #[serde(default = "default_true")]
+    pub is_fresh_install: bool,
+
     // General Tab
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub launch_at_startup: bool,
     #[serde(skip)]
     pub launch_at_startup_anim: f32,
+    #[serde(skip)]
+    pub launch_at_startup_loading: bool,
 
     #[serde(default = "default_true")]
     pub minimize_to_tray: bool,
@@ -205,8 +211,10 @@ impl Default for SettingsModel {
     fn default() -> Self {
         Self {
             active_tab: SettingsTab::General,
-            launch_at_startup: false,
-            launch_at_startup_anim: 0.0,
+            is_fresh_install: true,
+            launch_at_startup: true,
+            launch_at_startup_anim: 1.0,
+            launch_at_startup_loading: false,
 
             minimize_to_tray: true,
             minimize_to_tray_anim: 1.0,
@@ -398,6 +406,7 @@ pub enum SettingsMessage {
 
     // General Tab
     ToggleStartup(bool),
+    StartupRegistrationFinished(bool, Result<(), String>),
     ToggleTray(bool),
     ToggleNotifications(bool),
 
@@ -460,7 +469,16 @@ pub fn update(model: &mut SettingsModel, message: SettingsMessage) {
 
         SettingsMessage::ToggleStartup(val) => {
             model.launch_at_startup = val;
-            let _ = crate::core::utils::platform::set_launch_at_startup(val);
+            model.launch_at_startup_loading = true;
+        }
+        SettingsMessage::StartupRegistrationFinished(val, res) => {
+            model.launch_at_startup_loading = false;
+            if let Err(err) = res {
+                eprintln!("[QDM Startup Registration Error] {}", err);
+                model.launch_at_startup = !val;
+            } else {
+                model.launch_at_startup = val;
+            }
         }
         SettingsMessage::ToggleTray(val) => model.minimize_to_tray = val,
         SettingsMessage::ToggleNotifications(val) => model.show_notifications = val,
@@ -594,8 +612,11 @@ pub fn update(model: &mut SettingsModel, message: SettingsMessage) {
             // Handled at App level
         }
         SettingsMessage::ResetDefaultsPressed => {
-            *model = SettingsModel::default();
-            let _ = crate::core::utils::platform::set_launch_at_startup(false);
+            *model = SettingsModel {
+                is_fresh_install: false,
+                launch_at_startup_loading: true,
+                ..SettingsModel::default()
+            };
         }
     }
 
@@ -683,8 +704,17 @@ pub fn settings_view<'a>(
 }
 
 pub fn custom_switch<'a>(
+    is_on: bool,
+    anim_progress: f32,
+    on_toggle: impl Fn(bool) -> SettingsMessage + 'a,
+) -> Element<'a, SettingsMessage> {
+    custom_switch_with_loading(is_on, anim_progress, false, on_toggle)
+}
+
+pub fn custom_switch_with_loading<'a>(
     _is_on: bool,
     anim_progress: f32,
+    is_loading: bool,
     on_toggle: impl Fn(bool) -> SettingsMessage + 'a,
 ) -> Element<'a, SettingsMessage> {
     let track_bg = if anim_progress > 0.5 {
@@ -728,11 +758,28 @@ pub fn custom_switch<'a>(
 
     let target_state = anim_progress <= 0.5;
 
-    button(track)
-        .style(styles::icon_button_style)
-        .padding(0)
-        .on_press(on_toggle(target_state))
+    let mut switch_btn = button(track).style(styles::icon_button_style).padding(0);
+    if !is_loading {
+        switch_btn = switch_btn.on_press(on_toggle(target_state));
+    }
+
+    if is_loading {
+        row![
+            crate::icons::icon(crate::icons::ICON_SPINNER)
+                .size(12)
+                .color(colors::PRIMARY),
+            text("Applying...")
+                .size(12)
+                .color(colors::TEXT_MUTED),
+            Space::with_width(4),
+            switch_btn,
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center)
         .into()
+    } else {
+        switch_btn.into()
+    }
 }
 
 pub fn stepper_widget<'a>(

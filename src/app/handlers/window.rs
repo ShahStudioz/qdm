@@ -13,7 +13,15 @@ pub(crate) fn handle_window_id_retrieved(
 ) -> Task<Message> {
     if let Some(id) = id_opt {
         app.window_id = Some(id);
-        setup_native_resize(id)
+        let resize_task = setup_native_resize(id);
+        if crate::core::single_instance::take_started_minimized() {
+            Task::batch([
+                resize_task,
+                iced::window::change_mode(id, iced::window::Mode::Hidden),
+            ])
+        } else {
+            resize_task
+        }
     } else {
         Task::none()
     }

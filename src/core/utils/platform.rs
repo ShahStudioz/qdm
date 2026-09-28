@@ -4,18 +4,23 @@
 
 #[allow(dead_code)]
 pub fn set_launch_at_startup(enabled: bool) -> Result<(), String> {
+    let exe_path =
+        std::env::current_exe().map_err(|e| format!("Failed to get executable path: {}", e))?;
+    let exe_str = exe_path
+        .to_str()
+        .ok_or_else(|| "Invalid UTF-8 in executable path".to_string())?;
+
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
         use std::process::Command;
 
-        let exe_path =
-            std::env::current_exe().map_err(|e| format!("Failed to get executable path: {}", e))?;
-        let exe_str = exe_path
-            .to_str()
-            .ok_or_else(|| "Invalid UTF-8 in executable path".to_string())?;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let launch_cmd = format!("\"{}\" --minimized", exe_str);
 
         if enabled {
             let status = Command::new("reg")
+                .creation_flags(CREATE_NO_WINDOW)
                 .args([
                     "add",
                     r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -24,7 +29,7 @@ pub fn set_launch_at_startup(enabled: bool) -> Result<(), String> {
                     "/t",
                     "REG_SZ",
                     "/d",
-                    exe_str,
+                    &launch_cmd,
                     "/f",
                 ])
                 .status()
@@ -35,6 +40,7 @@ pub fn set_launch_at_startup(enabled: bool) -> Result<(), String> {
             }
         } else {
             let _ = Command::new("reg")
+                .creation_flags(CREATE_NO_WINDOW)
                 .args([
                     "delete",
                     r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -47,9 +53,74 @@ pub fn set_launch_at_startup(enabled: bool) -> Result<(), String> {
         Ok(())
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
-        let _ = enabled;
+        let home =
+            dirs::home_dir().ok_or_else(|| "Failed to resolve home directory".to_string())?;
+        let launch_agents_dir = home.join("Library").join("LaunchAgents");
+        let plist_path = launch_agents_dir.join("shahstudioz.qdm.app.plist");
+
+        if enabled {
+            std::fs::create_dir_all(&launch_agents_dir)
+                .map_err(|e| format!("Failed to create LaunchAgents directory: {}", e))?;
+
+            let plist_content = format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>shahstudioz.qdm.app</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{}</string>
+        <string>--minimized</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>
+"#,
+                exe_str
+            );
+
+            std::fs::write(&plist_path, plist_content)
+                .map_err(|e| format!("Failed to write LaunchAgent plist: {}", e))?;
+        } else if plist_path.exists() {
+            let _ = std::fs::remove_file(&plist_path);
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let config_dir =
+            dirs::config_dir().ok_or_else(|| "Failed to resolve config directory".to_string())?;
+        let autostart_dir = config_dir.join("autostart");
+        let desktop_path = autostart_dir.join("qdm.desktop");
+
+        if enabled {
+            std::fs::create_dir_all(&autostart_dir)
+                .map_err(|e| format!("Failed to create autostart directory: {}", e))?;
+
+            let desktop_content = format!(
+                "[Desktop Entry]\nType=Application\nName=Quick Download Manager\nComment=Modern Open-Source Downloader in Rust & Iced\nExec=\"{}\" --minimized\nTerminal=false\nStartupNotify=false\nX-GNOME-Autostart-enabled=true\n",
+                exe_str
+            );
+
+            std::fs::write(&desktop_path, desktop_content)
+                .map_err(|e| format!("Failed to write autostart desktop entry: {}", e))?;
+        } else if desktop_path.exists() {
+            let _ = std::fs::remove_file(&desktop_path);
+        }
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        let _ = (enabled, exe_str);
         Ok(())
     }
 }

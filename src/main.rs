@@ -13,8 +13,14 @@ mod views;
 use app::QdmApp;
 
 fn main() -> iced::Result {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let start_minimized = args
+        .iter()
+        .any(|arg| matches!(arg.as_str(), "--minimized" | "--startup" | "--silent"));
+    core::single_instance::set_started_minimized(start_minimized);
+    let cli_arg = args.into_iter().find(|arg| !arg.starts_with('-'));
+
     // Single-instance check: notify existing instance if running, then exit immediately
-    let cli_arg = std::env::args().nth(1);
     if core::single_instance::notify_existing_or_acquire(cli_arg) {
         return Ok(());
     }
@@ -29,6 +35,7 @@ fn main() -> iced::Result {
             size: Size::new(1200.0, 760.0),
             min_size: Some(Size::new(900.0, 600.0)),
             position: window::Position::Centered,
+            visible: !start_minimized,
             decorations: false,
             transparent: true,
             icon: window_icon,

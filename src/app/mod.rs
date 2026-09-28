@@ -191,7 +191,51 @@ impl QdmApp {
     /// Creates a new QDM application instance, loading settings from disk
     /// and kicking off the initial downloads load.
     pub fn new() -> (Self, Task<Message>) {
-        let initial_settings = storage::json_store::load_settings().unwrap_or_default();
+        let mut initial_settings = storage::json_store::load_settings().unwrap_or_default();
+        let mut startup_reg_task = Task::none();
+
+        if initial_settings.is_fresh_install {
+            // Fresh installation setup:
+            // 1. Enable launch at startup by default and persist the updated flag
+            initial_settings.launch_at_startup = true;
+            initial_settings.is_fresh_install = false;
+            initial_settings.sync_animations();
+            let _ = storage::json_store::save_settings(&initial_settings);
+
+            startup_reg_task = Task::perform(
+                async {
+                    tokio::task::spawn_blocking(|| {
+                        crate::core::utils::platform::set_launch_at_startup(true)
+                    })
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r)
+                },
+                |res| {
+                    Message::SettingsMessage(
+                        settings::SettingsMessage::StartupRegistrationFinished(true, res),
+                    )
+                },
+            );
+        } else if initial_settings.launch_at_startup {
+            // Ensure OS startup command stays synced (e.g. includes `--minimized` flag)
+            startup_reg_task = Task::perform(
+                async {
+                    tokio::task::spawn_blocking(|| {
+                        crate::core::utils::platform::set_launch_at_startup(true)
+                    })
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r)
+                },
+                |res| {
+                    Message::SettingsMessage(
+                        settings::SettingsMessage::StartupRegistrationFinished(true, res),
+                    )
+                },
+            );
+        }
+
         let tray = if let Some((rgba, width, height)) = crate::icons::load_logo_square_rgba(32) {
             crate::services::tray::TrayManager::new(rgba, width, height)
         } else {
@@ -263,6 +307,7 @@ impl QdmApp {
         (
             app,
             Task::batch([
+                startup_reg_task,
                 downloads_task,
                 torrent_task,
                 window_task,
