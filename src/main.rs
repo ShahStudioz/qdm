@@ -13,6 +13,11 @@ mod views;
 use app::QdmApp;
 
 fn main() -> iced::Result {
+    #[cfg(target_os = "linux")]
+    if let Err(err) = gtk::init() {
+        eprintln!("Failed to initialize GTK: {}", err);
+    }
+
     let args: Vec<String> = std::env::args().skip(1).collect();
     let start_minimized = args
         .iter()
