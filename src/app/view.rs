@@ -313,6 +313,22 @@ impl QdmApp {
         Theme::Dark
     }
 
+    // --- Daemon-compatible wrappers (Linux) ---
+    // `iced::daemon` requires `view` and `theme` to accept a `window::Id` parameter.
+    // We ignore it since QDM only ever has one logical window at a time.
+
+    /// Daemon-compatible view: delegates to [`Self::view()`].
+    #[cfg(target_os = "linux")]
+    pub fn view_daemon(&self, _window: iced::window::Id) -> Element<'_, Message> {
+        self.view()
+    }
+
+    /// Daemon-compatible theme: delegates to [`Self::theme()`].
+    #[cfg(target_os = "linux")]
+    pub fn theme_daemon(&self, _window: iced::window::Id) -> Theme {
+        self.theme()
+    }
+
     /// Returns a transparent window appearance so the outer rounded border clips cleanly.
     pub fn style(&self, _theme: &Theme) -> iced::daemon::Appearance {
         iced::daemon::Appearance {

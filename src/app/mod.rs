@@ -107,6 +107,8 @@ pub enum Message {
     WindowMaximizedResult(bool),
     #[allow(dead_code)]
     WindowConfigured,
+    /// A new window was opened (Linux daemon mode: after close-to-tray + reopen).
+    NewWindowOpened(iced::window::Id),
     TrayTick,
 
     // --- Single-Instance IPC ---
@@ -253,7 +255,7 @@ impl QdmApp {
             };
         }
 
-        let app = Self {
+        let mut app = Self {
             settings: initial_settings.clone(),
             tray,
             update_status: initial_update_status.clone(),
@@ -274,6 +276,24 @@ impl QdmApp {
             |_| Message::TorrentEngineInitialized,
         );
 
+        // On Linux (daemon mode), there is no initial window — we create one ourselves.
+        // If started minimized, don't open a window at all (tray-only mode).
+        #[cfg(target_os = "linux")]
+        let window_task = {
+            let start_minimized = crate::core::single_instance::take_started_minimized();
+            if start_minimized {
+                Task::none()
+            } else {
+                let (id, open_task) =
+                    iced::window::open(handlers::window::create_main_window_settings());
+                app.window_id = Some(id);
+                open_task.map(Message::NewWindowOpened)
+            }
+        };
+
+        // On non-Linux (application mode), the window is created by iced::application.
+        // Just retrieve its ID.
+        #[cfg(not(target_os = "linux"))]
         let window_task = iced::window::get_latest().map(Message::WindowIdRetrieved);
 
         let update_check_task = if initial_settings.auto_check_updates
@@ -543,7 +563,21 @@ impl QdmApp {
             }
             Message::WindowClosePressed => handlers::window::handle_window_close(self),
             Message::WindowConfigured => Task::none(),
+            Message::NewWindowOpened(_id) => {
+                // The window::open task completed. The window's Opened event
+                // will handle setup (resize, maximize check) via handle_window_event.
+                Task::none()
+            }
             Message::TrayTick => {
+                #[cfg(target_os = "linux")]
+                {
+                    // `tray-icon` on Linux uses libayatana-appindicator, which is GTK-based.
+                    // Without draining the GTK event queue, tray clicks and menu events are
+                    // never delivered to the Rust side. Pump non-blockingly here.
+                    while gtk::events_pending() {
+                        gtk::main_iteration_do(false);
+                    }
+                }
                 if let Some(tray) = &self.tray {
                     if let Some(action) = tray.poll_events() {
                         match action {

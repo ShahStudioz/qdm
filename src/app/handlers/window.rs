@@ -32,7 +32,10 @@ pub(crate) fn handle_window_event(
     id: iced::window::Id,
     event: iced::window::Event,
 ) -> Task<Message> {
-    app.window_id = Some(id);
+    // Don't update window_id on Closed — the window is being destroyed.
+    if !matches!(event, iced::window::Event::Closed) {
+        app.window_id = Some(id);
+    }
     match event {
         iced::window::Event::Opened { .. } => Task::batch([
             iced::window::get_maximized(id).map(Message::WindowMaximizedResult),
@@ -53,6 +56,13 @@ pub(crate) fn handle_window_event(
             }
         }
         iced::window::Event::CloseRequested => handle_window_close(app),
+        iced::window::Event::Closed => {
+            // Safety net: ensure window_id is cleared when a window is destroyed.
+            if app.window_id == Some(id) {
+                app.window_id = None;
+            }
+            Task::none()
+        }
         _ => Task::none(),
     }
 }
@@ -129,9 +139,33 @@ pub(crate) fn handle_window_toggle_maximize(app: &mut QdmApp) -> Task<Message> {
 pub(crate) fn handle_window_close(app: &mut QdmApp) -> Task<Message> {
     if let Some(id) = app.window_id {
         if app.settings.minimize_to_tray {
-            iced::window::change_mode(id, iced::window::Mode::Hidden)
+            #[cfg(target_os = "linux")]
+            {
+                // In daemon mode, actually destroy the window.
+                // This removes it from the dock completely.
+                // The daemon event loop keeps running with the tray icon.
+                // A brand new window is opened when the user clicks "Open QDM".
+                app.window_id = None;
+                iced::window::close(id)
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                iced::window::change_mode(id, iced::window::Mode::Hidden)
+            }
         } else {
-            iced::window::close(id)
+            #[cfg(target_os = "linux")]
+            {
+                // Daemon mode never exits on window close, so we must exit explicitly.
+                let _ = crate::services::shared::storage::json_store::save_downloads(
+                    &app.downloads,
+                );
+                app.tray.take();
+                std::process::exit(0);
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                iced::window::close(id)
+            }
         }
     } else {
         Task::none()
@@ -140,20 +174,65 @@ pub(crate) fn handle_window_close(app: &mut QdmApp) -> Task<Message> {
 
 pub(crate) fn handle_restore_from_tray(app: &mut QdmApp) -> Task<Message> {
     if let Some(id) = app.window_id {
-        Task::batch([
-            iced::window::change_mode(id, iced::window::Mode::Windowed),
-            iced::window::minimize(id, false),
-            iced::window::gain_focus(id),
-        ])
+        // Window already exists — just focus it.
+        #[cfg(not(target_os = "linux"))]
+        {
+            Task::batch([
+                iced::window::change_mode(id, iced::window::Mode::Windowed),
+                iced::window::gain_focus(id),
+            ])
+        }
+        #[cfg(target_os = "linux")]
+        {
+            // This shouldn't normally happen in daemon mode (window is destroyed
+            // on hide), but just in case — focus the existing window.
+            iced::window::gain_focus(id)
+        }
     } else {
-        Task::none()
+        #[cfg(target_os = "linux")]
+        {
+            // No window exists — open a brand new one.
+            // GNOME Wayland always allows new windows to appear.
+            let (id, open_task) = iced::window::open(create_main_window_settings());
+            app.window_id = Some(id);
+            open_task.map(Message::NewWindowOpened)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Task::none()
+        }
     }
 }
 
 pub(crate) fn handle_quit_from_tray(app: &mut QdmApp) -> Task<Message> {
-    if let Some(id) = app.window_id {
-        iced::window::close(id)
-    } else {
-        std::process::exit(0);
+    // Save downloads state before exiting so nothing is lost.
+    let _ = crate::services::shared::storage::json_store::save_downloads(&app.downloads);
+
+    // Explicitly drop the tray icon so it doesn't leave a ghost icon in the panel.
+    app.tray.take();
+
+    std::process::exit(0);
+}
+
+/// Builds the standard window settings for QDM's main window.
+/// Used both for the initial window and when reopening from tray.
+#[cfg(target_os = "linux")]
+pub(crate) fn create_main_window_settings() -> iced::window::Settings {
+    let window_icon = crate::icons::load_window_icon();
+    iced::window::Settings {
+        size: iced::Size::new(1200.0, 760.0),
+        min_size: Some(iced::Size::new(900.0, 600.0)),
+        position: iced::window::Position::Centered,
+        visible: true,
+        decorations: false,
+        transparent: true,
+        icon: window_icon,
+        exit_on_close_request: false,
+        platform_specific: iced::window::settings::PlatformSpecific {
+            application_id: "qdm".to_string(),
+            ..Default::default()
+        },
+        ..Default::default()
     }
 }
+

@@ -74,6 +74,12 @@ languages = ["English"]
 
 [package.metadata.packager.deb]
 depends = ["libc6", "libssl3 | libssl1.1", "libgtk-3-0", "libxdo3"]
+# Custom .desktop template adds StartupWMClass so GNOME/KDE groups the running
+# window with the dock icon. Also adds magnet URI handler and StartupNotify.
+desktop-template = "packaging/qdm.desktop"
+# Inject postinst/postrm maintainer scripts so the icon theme cache and
+# desktop database are refreshed automatically on install and uninstall.
+files = { "packaging/deb/postinst" = "DEBIAN/postinst", "packaging/deb/postrm" = "DEBIAN/postrm" }
 
 [package.metadata.packager.appimage]
 
