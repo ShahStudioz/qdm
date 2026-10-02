@@ -108,6 +108,7 @@ pub enum Message {
     #[allow(dead_code)]
     WindowConfigured,
     /// A new window was opened (Linux daemon mode: after close-to-tray + reopen).
+    #[allow(dead_code)]
     NewWindowOpened(iced::window::Id),
     TrayTick,
 
@@ -255,6 +256,7 @@ impl QdmApp {
             };
         }
 
+        #[allow(unused_mut)]
         let mut app = Self {
             settings: initial_settings.clone(),
             tray,

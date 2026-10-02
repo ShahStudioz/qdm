@@ -195,10 +195,9 @@ pub fn window_close_button_style(
 ) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_theme: &Theme, status: button::Status| {
         let (bg, text_color) = match status {
-            button::Status::Pressed => (
-                Some(Background::Color(colors::ERROR)),
-                colors::TEXT_PRIMARY,
-            ),
+            button::Status::Pressed => {
+                (Some(Background::Color(colors::ERROR)), colors::TEXT_PRIMARY)
+            }
             button::Status::Hovered => (Some(Background::Color(colors::ERROR)), Color::WHITE),
             _ => (None, colors::TEXT_MUTED),
         };

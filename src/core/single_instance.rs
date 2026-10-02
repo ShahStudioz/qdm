@@ -18,8 +18,7 @@ pub enum SingleInstanceCommand {
 
 static IPC_SENDER: OnceLock<broadcast::Sender<SingleInstanceCommand>> = OnceLock::new();
 static INITIAL_ARG: OnceLock<String> = OnceLock::new();
-static STARTED_MINIMIZED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static STARTED_MINIMIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn set_started_minimized(val: bool) {
     STARTED_MINIMIZED.store(val, std::sync::atomic::Ordering::SeqCst);

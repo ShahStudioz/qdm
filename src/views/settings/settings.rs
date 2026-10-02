@@ -768,9 +768,7 @@ pub fn custom_switch_with_loading<'a>(
             crate::icons::icon(crate::icons::ICON_SPINNER)
                 .size(12)
                 .color(colors::PRIMARY),
-            text("Applying...")
-                .size(12)
-                .color(colors::TEXT_MUTED),
+            text("Applying...").size(12).color(colors::TEXT_MUTED),
             Space::with_width(4),
             switch_btn,
         ]

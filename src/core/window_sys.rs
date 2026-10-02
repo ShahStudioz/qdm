@@ -1,4 +1,25 @@
-//! Native platform window customization for borderless resizing and window management.
+//! # Native Window System Integration Module
+//!
+//! Provides platform-specific window styling, borderless edge-resizing hit-tests,
+//! and native OS window state tracking.
+//!
+//! ## Windows Implementation Details
+//! - **Frameless & Borderless**: Window decorations are removed in Iced settings,
+//!   but standard Win32 windows lose edge resize borders when borderless.
+//! - **Subclassing (`SetWindowSubclass`)**: We hook the window procedure (`wndproc`)
+//!   and handle:
+//!   - `WM_NCHITTEST`: Calculates 7px borders and 14px corners to return `HTTOP`,
+//!     `HTLEFT`, `HTBOTTOMRIGHT`, etc., so Windows provides hardware resize cursor indicators.
+//!   - `WM_NCCALCSIZE`: Strips the native non-client area so the Iced canvas covers the
+//!     entire window.
+//!   - `WM_ERASEBKGND` / `WM_WINDOWPOSCHANGING`: Eliminates white background flicker
+//!     and buffer tearing during aggressive mouse drags.
+//!   - `DWMWA_WINDOW_CORNER_PREFERENCE`: Dynamically enforces Windows 11 DWM rounded corners
+//!     when windowed (`DWMWCP_ROUND`) and square edges when maximized (`DWMWCP_DONOTROUND`).
+//!
+//! ## Non-Windows Platforms
+//! On macOS and Linux, window resizing and frame geometry are managed by the compositor
+//! (Cocoa / Wayland / X11) through Iced's Winit event loop.
 
 #[cfg(target_os = "windows")]
 pub mod windows {
@@ -192,8 +213,31 @@ pub mod windows {
 
 #[cfg(not(target_os = "windows"))]
 pub mod windows {
+    /// Non-Windows fallback: returns false.
     pub fn is_window_maximized() -> bool {
         false
     }
+    /// Non-Windows fallback: no-op.
     pub fn set_window_maximized(_max: bool) {}
+}
+
+/// Returns whether the window is currently maximized on supported platforms.
+pub fn is_window_maximized() -> bool {
+    windows::is_window_maximized()
+}
+
+/// Sets the internal window maximized state.
+pub fn set_window_maximized(max: bool) {
+    windows::set_window_maximized(max);
+}
+
+/// Initializes native borderless resizing for the window.
+///
+/// On Windows, subclasses the Win32 window and enables DWM rounded corners.
+/// On macOS and Linux, this is a safe no-op as window frames are handled natively.
+pub unsafe fn init_borderless_resize(hwnd: isize) {
+    #[cfg(target_os = "windows")]
+    windows::init_borderless_resize(hwnd);
+    #[cfg(not(target_os = "windows"))]
+    let _ = hwnd;
 }

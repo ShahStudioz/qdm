@@ -82,5 +82,20 @@ desktop-template = "packaging/qdm.desktop"
 files = { "packaging/deb/postinst" = "DEBIAN/postinst", "packaging/deb/postrm" = "DEBIAN/postrm" }
 
 [package.metadata.packager.appimage]
+# Bundle essential dynamic libraries so QDM runs out-of-the-box on Ubuntu, Fedora,
+# Arch, openSUSE, and other distributions without requiring users to run apt/dnf/pacman
+# install for libayatana-appindicator3 or libssl.
+libs = [
+    "libayatana-appindicator3.so*",
+    "libayatana-ido3-0.4.so*",
+    "libdbusmenu-glib.so*",
+    "libdbusmenu-gtk3.so*",
+    "libxdo.so*",
+    "libssl.so*",
+    "libcrypto.so*",
+]
+# Use linuxdeploy-plugin-gtk to automatically deploy GTK3 runtime assets, schemas, modules, and themes
+linuxdeploy-plugins = { "gtk" = "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh" }
+
 
 [package.metadata.packager.dmg]
