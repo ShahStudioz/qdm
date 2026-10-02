@@ -43,6 +43,7 @@ impl QdmApp {
 
         // --- Window events subscription (resize, open, close request, maximize) ---
         let window_sub = iced::window::events().map(|(id, event)| Message::WindowEvent(id, event));
+        let raw_event_sub = iced::event::listen().map(Message::RawEvent);
 
         // --- System tray polling tick (300ms) ---
         let tray_sub =
@@ -67,6 +68,7 @@ impl QdmApp {
             disk_sync_sub,
             network_check_sub,
             window_sub,
+            raw_event_sub,
             tray_sub,
             ipc_sub,
         ])

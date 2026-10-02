@@ -98,6 +98,9 @@ pub enum Message {
     OpenUpdateTab,
 
     // --- Window Management ---
+    RawEvent(iced::Event),
+    EdgeResizePressed(crate::core::window_sys::Edge),
+    #[allow(dead_code)]
     WindowIdRetrieved(Option<iced::window::Id>),
     WindowEvent(iced::window::Id, iced::window::Event),
     WindowDragPressed,
@@ -132,6 +135,10 @@ pub struct QdmApp {
     pub(crate) current_filter: sidebar::NavFilter,
     pub(crate) search_query: String,
     pub(crate) is_topbar_menu_open: bool,
+
+    pub(crate) window_size: iced::Size,
+    pub(crate) cursor_position: iced::Point,
+    pub(crate) resize_state: Option<handlers::window::ResizeDragState>,
 
     // --- Downloads ---
     pub(crate) downloads: Vec<DownloadItem>,
@@ -168,6 +175,9 @@ impl Default for QdmApp {
             window_id: None,
             is_maximized: false,
             last_title_bar_click: None,
+            window_size: iced::Size::new(1200.0, 760.0),
+            cursor_position: iced::Point::ORIGIN,
+            resize_state: None,
             current_filter: sidebar::NavFilter::All,
             search_query: String::new(),
             downloads: Vec::new(),
@@ -551,6 +561,10 @@ impl QdmApp {
             // --- Window Management ---
             Message::WindowIdRetrieved(id_opt) => {
                 handlers::window::handle_window_id_retrieved(self, id_opt)
+            }
+            Message::RawEvent(event) => handlers::window::handle_raw_event(self, event),
+            Message::EdgeResizePressed(edge) => {
+                handlers::window::handle_edge_resize_pressed(self, edge)
             }
             Message::WindowEvent(id, event) => {
                 handlers::window::handle_window_event(self, id, event)

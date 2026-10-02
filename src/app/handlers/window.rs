@@ -40,6 +40,135 @@ pub(crate) fn handle_window_id_retrieved(
 }
 
 /// Routes raw Iced window lifecycle events to specific action handlers.
+use crate::core::window_sys::Edge;
+
+pub(crate) struct ResizeDragState {
+    pub edge: Edge,
+    pub start_cursor_pos: iced::Point,
+    pub start_window_size: iced::Size,
+}
+
+/// Routes raw Iced events (window lifecycle + mouse movement & press) to handlers.
+pub(crate) fn handle_raw_event(app: &mut QdmApp, event: iced::Event) -> Task<Message> {
+    match event {
+        iced::Event::Mouse(mouse_event) => handle_mouse_event(app, mouse_event),
+        _ => Task::none(),
+    }
+}
+
+/// Handles edge mouse cursor movement, clicks, and drag-to-resize operations on frameless windows.
+pub(crate) fn handle_mouse_event(app: &mut QdmApp, event: iced::mouse::Event) -> Task<Message> {
+    if app.is_maximized {
+        return Task::none();
+    }
+
+    let Some(id) = app.window_id else {
+        return Task::none();
+    };
+
+    match event {
+        iced::mouse::Event::CursorMoved { position } => {
+            app.cursor_position = position;
+            if let Some(ref drag) = app.resize_state {
+                let dx = position.x - drag.start_cursor_pos.x;
+                let dy = position.y - drag.start_cursor_pos.y;
+
+                let (mut w, mut h) = (drag.start_window_size.width, drag.start_window_size.height);
+
+                match drag.edge {
+                    Edge::Right => {
+                        w += dx;
+                    }
+                    Edge::Bottom => {
+                        h += dy;
+                    }
+                    Edge::BottomRight => {
+                        w += dx;
+                        h += dy;
+                    }
+                    Edge::Left => {
+                        w -= dx;
+                    }
+                    Edge::Top => {
+                        h -= dy;
+                    }
+                    Edge::TopLeft => {
+                        w -= dx;
+                        h -= dy;
+                    }
+                    Edge::TopRight => {
+                        w += dx;
+                        h -= dy;
+                    }
+                    Edge::BottomLeft => {
+                        w -= dx;
+                        h += dy;
+                    }
+                }
+
+                let new_w = w.max(900.0);
+                let new_h = h.max(600.0);
+
+                return iced::window::resize(id, iced::Size::new(new_w, new_h));
+            }
+            Task::none()
+        }
+        iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left) => {
+            let margin = 7.0;
+            let (w, h) = (app.window_size.width, app.window_size.height);
+            let (x, y) = (app.cursor_position.x, app.cursor_position.y);
+
+            let on_left = x <= margin;
+            let on_right = x >= w - margin;
+            let on_top = y <= margin;
+            let on_bottom = y >= h - margin;
+
+            let edge = if on_top && on_left {
+                Some(Edge::TopLeft)
+            } else if on_top && on_right {
+                Some(Edge::TopRight)
+            } else if on_bottom && on_left {
+                Some(Edge::BottomLeft)
+            } else if on_bottom && on_right {
+                Some(Edge::BottomRight)
+            } else if on_left {
+                Some(Edge::Left)
+            } else if on_right {
+                Some(Edge::Right)
+            } else if on_top {
+                Some(Edge::Top)
+            } else if on_bottom {
+                Some(Edge::Bottom)
+            } else {
+                None
+            };
+
+            if let Some(edge) = edge {
+                app.resize_state = Some(ResizeDragState {
+                    edge,
+                    start_cursor_pos: app.cursor_position,
+                    start_window_size: app.window_size,
+                });
+            }
+            Task::none()
+        }
+        iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left) => {
+            app.resize_state = None;
+            Task::none()
+        }
+        _ => Task::none(),
+    }
+}
+
+pub(crate) fn handle_edge_resize_pressed(app: &mut QdmApp, edge: Edge) -> Task<Message> {
+    app.resize_state = Some(ResizeDragState {
+        edge,
+        start_cursor_pos: app.cursor_position,
+        start_window_size: app.window_size,
+    });
+    Task::none()
+}
+
 pub(crate) fn handle_window_event(
     app: &mut QdmApp,
     id: iced::window::Id,
@@ -55,7 +184,8 @@ pub(crate) fn handle_window_event(
             iced::window::get_maximized(id).map(Message::WindowMaximizedResult),
             setup_native_resize(id),
         ]),
-        iced::window::Event::Resized(_) => {
+        iced::window::Event::Resized(size) => {
+            app.window_size = size;
             #[cfg(target_os = "windows")]
             {
                 let is_max = crate::core::window_sys::is_window_maximized();

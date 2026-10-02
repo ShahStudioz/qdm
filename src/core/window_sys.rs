@@ -81,6 +81,7 @@ pub mod windows {
 
     /// Configures the Win32 window to allow border grabbing and resizing
     /// while remaining borderless, frameless, and rounded on Windows 11.
+    #[allow(dead_code)]
     pub unsafe fn init_borderless_resize(hwnd: isize) {
         if INITIALIZED.swap(true, Ordering::SeqCst) {
             return;
@@ -214,6 +215,7 @@ pub mod windows {
 #[cfg(not(target_os = "windows"))]
 pub mod windows {
     /// Non-Windows fallback: returns false.
+    #[allow(dead_code)]
     pub fn is_window_maximized() -> bool {
         false
     }
@@ -222,6 +224,7 @@ pub mod windows {
 }
 
 /// Returns whether the window is currently maximized on supported platforms.
+#[allow(dead_code)]
 pub fn is_window_maximized() -> bool {
     windows::is_window_maximized()
 }
@@ -235,9 +238,22 @@ pub fn set_window_maximized(max: bool) {
 ///
 /// On Windows, subclasses the Win32 window and enables DWM rounded corners.
 /// On macOS and Linux, this is a safe no-op as window frames are handled natively.
+#[allow(dead_code)]
 pub unsafe fn init_borderless_resize(hwnd: isize) {
     #[cfg(target_os = "windows")]
     windows::init_borderless_resize(hwnd);
     #[cfg(not(target_os = "windows"))]
     let _ = hwnd;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Edge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
 }

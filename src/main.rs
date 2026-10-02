@@ -61,7 +61,7 @@ fn main() -> iced::Result {
     // windows from a tray-icon click.
     #[cfg(target_os = "linux")]
     {
-        return iced::daemon(
+        iced::daemon(
             "Quick Download Manager",
             QdmApp::update,
             QdmApp::view_daemon,
@@ -70,7 +70,7 @@ fn main() -> iced::Result {
         .theme(QdmApp::theme_daemon)
         .style(QdmApp::style)
         .font(icons::FONTAWESOME_BYTES)
-        .run_with(QdmApp::new);
+        .run_with(QdmApp::new)
     }
 
     // On Windows/macOS, use iced::application with a normal initial window.
