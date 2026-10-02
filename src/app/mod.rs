@@ -98,6 +98,9 @@ pub enum Message {
     OpenUpdateTab,
 
     // --- Window Management ---
+    RawEvent(iced::Event),
+    EdgeResizePressed(crate::core::window_sys::Edge),
+    #[allow(dead_code)]
     WindowIdRetrieved(Option<iced::window::Id>),
     WindowEvent(iced::window::Id, iced::window::Event),
     WindowDragPressed,
@@ -107,6 +110,9 @@ pub enum Message {
     WindowMaximizedResult(bool),
     #[allow(dead_code)]
     WindowConfigured,
+    /// A new window was opened (Linux daemon mode: after close-to-tray + reopen).
+    #[allow(dead_code)]
+    NewWindowOpened(iced::window::Id),
     TrayTick,
 
     // --- Single-Instance IPC ---
@@ -129,6 +135,10 @@ pub struct QdmApp {
     pub(crate) current_filter: sidebar::NavFilter,
     pub(crate) search_query: String,
     pub(crate) is_topbar_menu_open: bool,
+
+    pub(crate) window_size: iced::Size,
+    pub(crate) cursor_position: iced::Point,
+    pub(crate) resize_state: Option<handlers::window::ResizeDragState>,
 
     // --- Downloads ---
     pub(crate) downloads: Vec<DownloadItem>,
@@ -165,6 +175,9 @@ impl Default for QdmApp {
             window_id: None,
             is_maximized: false,
             last_title_bar_click: None,
+            window_size: iced::Size::new(1200.0, 760.0),
+            cursor_position: iced::Point::ORIGIN,
+            resize_state: None,
             current_filter: sidebar::NavFilter::All,
             search_query: String::new(),
             downloads: Vec::new(),
@@ -191,7 +204,51 @@ impl QdmApp {
     /// Creates a new QDM application instance, loading settings from disk
     /// and kicking off the initial downloads load.
     pub fn new() -> (Self, Task<Message>) {
-        let initial_settings = storage::json_store::load_settings().unwrap_or_default();
+        let mut initial_settings = storage::json_store::load_settings().unwrap_or_default();
+        let mut startup_reg_task = Task::none();
+
+        if initial_settings.is_fresh_install {
+            // Fresh installation setup:
+            // 1. Enable launch at startup by default and persist the updated flag
+            initial_settings.launch_at_startup = true;
+            initial_settings.is_fresh_install = false;
+            initial_settings.sync_animations();
+            let _ = storage::json_store::save_settings(&initial_settings);
+
+            startup_reg_task = Task::perform(
+                async {
+                    tokio::task::spawn_blocking(|| {
+                        crate::core::utils::platform::set_launch_at_startup(true)
+                    })
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r)
+                },
+                |res| {
+                    Message::SettingsMessage(
+                        settings::SettingsMessage::StartupRegistrationFinished(true, res),
+                    )
+                },
+            );
+        } else if initial_settings.launch_at_startup {
+            // Ensure OS startup command stays synced (e.g. includes `--minimized` flag)
+            startup_reg_task = Task::perform(
+                async {
+                    tokio::task::spawn_blocking(|| {
+                        crate::core::utils::platform::set_launch_at_startup(true)
+                    })
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r)
+                },
+                |res| {
+                    Message::SettingsMessage(
+                        settings::SettingsMessage::StartupRegistrationFinished(true, res),
+                    )
+                },
+            );
+        }
+
         let tray = if let Some((rgba, width, height)) = crate::icons::load_logo_square_rgba(32) {
             crate::services::tray::TrayManager::new(rgba, width, height)
         } else {
@@ -209,7 +266,8 @@ impl QdmApp {
             };
         }
 
-        let app = Self {
+        #[allow(unused_mut)]
+        let mut app = Self {
             settings: initial_settings.clone(),
             tray,
             update_status: initial_update_status.clone(),
@@ -230,6 +288,24 @@ impl QdmApp {
             |_| Message::TorrentEngineInitialized,
         );
 
+        // On Linux (daemon mode), there is no initial window — we create one ourselves.
+        // If started minimized, don't open a window at all (tray-only mode).
+        #[cfg(target_os = "linux")]
+        let window_task = {
+            let start_minimized = crate::core::single_instance::take_started_minimized();
+            if start_minimized {
+                Task::none()
+            } else {
+                let (id, open_task) =
+                    iced::window::open(handlers::window::create_main_window_settings());
+                app.window_id = Some(id);
+                open_task.map(Message::NewWindowOpened)
+            }
+        };
+
+        // On non-Linux (application mode), the window is created by iced::application.
+        // Just retrieve its ID.
+        #[cfg(not(target_os = "linux"))]
         let window_task = iced::window::get_latest().map(Message::WindowIdRetrieved);
 
         let update_check_task = if initial_settings.auto_check_updates
@@ -263,6 +339,7 @@ impl QdmApp {
         (
             app,
             Task::batch([
+                startup_reg_task,
                 downloads_task,
                 torrent_task,
                 window_task,
@@ -485,6 +562,10 @@ impl QdmApp {
             Message::WindowIdRetrieved(id_opt) => {
                 handlers::window::handle_window_id_retrieved(self, id_opt)
             }
+            Message::RawEvent(event) => handlers::window::handle_raw_event(self, event),
+            Message::EdgeResizePressed(edge) => {
+                handlers::window::handle_edge_resize_pressed(self, edge)
+            }
             Message::WindowEvent(id, event) => {
                 handlers::window::handle_window_event(self, id, event)
             }
@@ -498,7 +579,21 @@ impl QdmApp {
             }
             Message::WindowClosePressed => handlers::window::handle_window_close(self),
             Message::WindowConfigured => Task::none(),
+            Message::NewWindowOpened(_id) => {
+                // The window::open task completed. The window's Opened event
+                // will handle setup (resize, maximize check) via handle_window_event.
+                Task::none()
+            }
             Message::TrayTick => {
+                #[cfg(target_os = "linux")]
+                {
+                    // `tray-icon` on Linux uses libayatana-appindicator, which is GTK-based.
+                    // Without draining the GTK event queue, tray clicks and menu events are
+                    // never delivered to the Rust side. Pump non-blockingly here.
+                    while gtk::events_pending() {
+                        gtk::main_iteration_do(false);
+                    }
+                }
                 if let Some(tray) = &self.tray {
                     if let Some(action) = tray.poll_events() {
                         match action {

@@ -64,7 +64,9 @@ jobs:
             pkg-config \
             libasound2-dev \
             libxdo-dev \
-            patchelf
+            patchelf \
+            file \
+            desktop-file-utils
 
       - name: Install cargo-packager
         uses: taiki-e/install-action@v2
@@ -92,6 +94,8 @@ jobs:
           rm -rf AppIcon.iconset
 
       - name: Package with cargo-packager
+        env:
+          DEPLOY_GTK_VERSION: 3
         run: cargo packager --release --target ${{ matrix.target }} --formats ${{ matrix.formats }}
 
       - name: Ad-hoc codesign macOS app bundle

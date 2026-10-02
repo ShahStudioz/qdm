@@ -218,11 +218,6 @@ pub fn view(state: &UpdateConflictDialogModel) -> Element<'_, UpdateConflictDial
         .height(Length::Fill)
         .align_x(Alignment::Center)
         .align_y(Alignment::Center)
-        .style(|_| container::Style {
-            background: Some(iced::Background::Color(iced::Color::from_rgba(
-                0.0, 0.0, 0.0, 0.65,
-            ))),
-            ..Default::default()
-        })
+        .style(styles::modal_backdrop_style)
         .into()
 }

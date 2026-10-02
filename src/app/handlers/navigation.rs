@@ -198,6 +198,51 @@ pub(crate) fn handle_settings_message(
             Task::batch(tasks)
         }
 
+        settings::SettingsMessage::ToggleStartup(val) => {
+            settings::update(
+                &mut app.settings,
+                settings::SettingsMessage::ToggleStartup(val),
+            );
+            Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        crate::core::utils::platform::set_launch_at_startup(val)
+                    })
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r)
+                },
+                move |res| {
+                    Message::SettingsMessage(
+                        settings::SettingsMessage::StartupRegistrationFinished(val, res),
+                    )
+                },
+            )
+        }
+
+        settings::SettingsMessage::ResetDefaultsPressed => {
+            settings::update(
+                &mut app.settings,
+                settings::SettingsMessage::ResetDefaultsPressed,
+            );
+            let enabled = app.settings.launch_at_startup;
+            Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        crate::core::utils::platform::set_launch_at_startup(enabled)
+                    })
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r)
+                },
+                move |res| {
+                    Message::SettingsMessage(
+                        settings::SettingsMessage::StartupRegistrationFinished(enabled, res),
+                    )
+                },
+            )
+        }
+
         settings::SettingsMessage::CheckUpdatesPressed => handle_check_for_updates(app),
         settings::SettingsMessage::StartUpdateDownload => handle_start_update_download(app),
         settings::SettingsMessage::CancelUpdateDownload => handle_cancel_update_download(app),

@@ -97,49 +97,13 @@ impl SchedulerService {
                 std::process::exit(0);
             }
             OnCompleteAction::SleepComputer => {
-                #[cfg(target_os = "windows")]
-                {
-                    let _ = std::process::Command::new("rundll32.exe")
-                        .args(["powrprof.dll,SetSuspendState", "0,1,0"])
-                        .spawn();
-                }
-                #[cfg(target_os = "macos")]
-                {
-                    let _ = std::process::Command::new("pmset")
-                        .args(["sleepnow"])
-                        .spawn();
-                }
-                #[cfg(target_os = "linux")]
-                {
-                    let _ = std::process::Command::new("systemctl")
-                        .args(["suspend"])
-                        .spawn();
+                if let Err(e) = crate::core::utils::platform::sleep_computer() {
+                    eprintln!("[QDM Scheduler] Failed to sleep computer: {}", e);
                 }
             }
             OnCompleteAction::ShutdownComputer => {
-                #[cfg(target_os = "windows")]
-                {
-                    let _ = std::process::Command::new("shutdown")
-                        .args([
-                            "/s",
-                            "/t",
-                            "60",
-                            "/c",
-                            "QDM: All scheduled downloads complete. Computer will shut down in 60 seconds. Run 'shutdown /a' in CMD to cancel.",
-                        ])
-                        .spawn();
-                }
-                #[cfg(target_os = "macos")]
-                {
-                    let _ = std::process::Command::new("osascript")
-                        .args(["-e", "tell app \"System Events\" to shut down"])
-                        .spawn();
-                }
-                #[cfg(target_os = "linux")]
-                {
-                    let _ = std::process::Command::new("shutdown")
-                        .args(["-h", "+1"])
-                        .spawn();
+                if let Err(e) = crate::core::utils::platform::shutdown_computer() {
+                    eprintln!("[QDM Scheduler] Failed to shutdown computer: {}", e);
                 }
             }
         }

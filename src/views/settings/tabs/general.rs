@@ -1,5 +1,5 @@
 use crate::views::settings::settings::{
-    custom_switch, setting_row, SettingsMessage, SettingsModel,
+    custom_switch, custom_switch_with_loading, setting_row, SettingsMessage, SettingsModel,
 };
 use iced::widget::column;
 use iced::{Element, Length};
@@ -7,10 +7,11 @@ use iced::{Element, Length};
 pub fn view<'a>(model: &SettingsModel) -> Element<'a, SettingsMessage> {
     let item_startup = setting_row(
         "Launch at startup",
-        "Automatically start QDM when you log in to your computer",
-        custom_switch(
+        "Automatically start QDM in the system tray when you log in",
+        custom_switch_with_loading(
             model.launch_at_startup,
             model.launch_at_startup_anim,
+            model.launch_at_startup_loading,
             SettingsMessage::ToggleStartup,
         ),
     );

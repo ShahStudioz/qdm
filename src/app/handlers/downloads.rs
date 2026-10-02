@@ -154,37 +154,7 @@ pub(crate) fn handle_cancel_download(app: &mut QdmApp, id: usize) -> Task<Messag
 /// Opens a file or directory using the platform's native shell without spawning
 /// a visible console window (avoids cmd.exe flashing on Windows).
 pub(crate) fn open_path_native(path: &std::path::Path) {
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::ffi::OsStrExt;
-        let wide_path: Vec<u16> = path
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let wide_op: Vec<u16> = std::ffi::OsStr::new("open")
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        unsafe {
-            windows_sys::Win32::UI::Shell::ShellExecuteW(
-                0,
-                wide_op.as_ptr(),
-                wide_path.as_ptr(),
-                std::ptr::null(),
-                std::ptr::null(),
-                windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
-            );
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("open").arg(path).spawn();
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let _ = std::process::Command::new("xdg-open").arg(path).spawn();
-    }
+    crate::core::utils::platform::open_path_native(path);
 }
 
 /// Opens the save folder for a download using the platform's native file manager.

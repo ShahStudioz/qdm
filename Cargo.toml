@@ -1,6 +1,6 @@
 [package]
 name = "qdm"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 description = "Quick Download Manager - Modern Open-Source Downloader in Rust & Iced"
 
@@ -40,6 +40,9 @@ windows-sys = { version = "0.52", features = ["Win32_UI_WindowsAndMessaging", "W
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
 [package.metadata.packager]
 product-name = "QDM"
 identifier = "shahstudioz.qdm.app"
@@ -71,7 +74,28 @@ languages = ["English"]
 
 [package.metadata.packager.deb]
 depends = ["libc6", "libssl3 | libssl1.1", "libgtk-3-0", "libxdo3"]
+# Custom .desktop template adds StartupWMClass so GNOME/KDE groups the running
+# window with the dock icon. Also adds magnet URI handler and StartupNotify.
+desktop-template = "packaging/qdm.desktop"
+# Inject postinst/postrm maintainer scripts so the icon theme cache and
+# desktop database are refreshed automatically on install and uninstall.
+files = { "packaging/deb/postinst" = "DEBIAN/postinst", "packaging/deb/postrm" = "DEBIAN/postrm" }
 
 [package.metadata.packager.appimage]
+# Bundle essential dynamic libraries so QDM runs out-of-the-box on Ubuntu, Fedora,
+# Arch, openSUSE, and other distributions without requiring users to run apt/dnf/pacman
+# install for libayatana-appindicator3 or libssl.
+libs = [
+    "libayatana-appindicator3.so*",
+    "libayatana-ido3-0.4.so*",
+    "libdbusmenu-glib.so*",
+    "libdbusmenu-gtk3.so*",
+    "libxdo.so*",
+    "libssl.so*",
+    "libcrypto.so*",
+]
+# Use linuxdeploy-plugin-gtk to automatically deploy GTK3 runtime assets, schemas, modules, and themes
+linuxdeploy-plugins = { "gtk" = "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh" }
+
 
 [package.metadata.packager.dmg]

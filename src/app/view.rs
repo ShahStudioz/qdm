@@ -83,6 +83,7 @@ impl QdmApp {
         // --- Sidebar ---
         let sidebar = sidebar::sidebar_view(
             self.current_filter,
+            self.is_maximized,
             downloading_count,
             completed_count,
             failed_count,
@@ -286,9 +287,10 @@ impl QdmApp {
             .width(Length::Fill)
             .height(Length::Fill);
 
-        container(window_content)
+        let main_container = container(window_content)
             .width(Length::Fill)
             .height(Length::Fill)
+            .padding(if self.is_maximized { 0 } else { 1 })
             .style(|_| container::Style {
                 background: Some(iced::Background::Color(colors::BACKGROUND)),
                 text_color: Some(colors::TEXT_PRIMARY),
@@ -298,17 +300,140 @@ impl QdmApp {
                     radius: if self.is_maximized {
                         0.0.into()
                     } else {
-                        8.0.into()
+                        styles::WINDOW_CORNER_RADIUS.into()
                     },
                 },
                 ..Default::default()
-            })
+            });
+
+        if self.is_maximized {
+            main_container.into()
+        } else {
+            use crate::core::window_sys::Edge;
+            use iced::mouse;
+            use iced::widget::mouse_area;
+
+            // Edge handles with native hardware cursor hover feedback
+            let right_handle = mouse_area(container("").width(6).height(Length::Fill))
+                .interaction(mouse::Interaction::ResizingHorizontally)
+                .on_press(Message::EdgeResizePressed(Edge::Right));
+
+            let bottom_handle = mouse_area(container("").height(6).width(Length::Fill))
+                .interaction(mouse::Interaction::ResizingVertically)
+                .on_press(Message::EdgeResizePressed(Edge::Bottom));
+
+            let bottom_right_handle = mouse_area(container("").width(12).height(12))
+                .interaction(mouse::Interaction::ResizingDiagonallyDown)
+                .on_press(Message::EdgeResizePressed(Edge::BottomRight));
+
+            let bottom_left_handle = mouse_area(container("").width(12).height(12))
+                .interaction(mouse::Interaction::ResizingDiagonallyUp)
+                .on_press(Message::EdgeResizePressed(Edge::BottomLeft));
+
+            let top_handle = mouse_area(container("").height(6).width(Length::Fill))
+                .interaction(mouse::Interaction::ResizingVertically)
+                .on_press(Message::EdgeResizePressed(Edge::Top));
+
+            let left_handle = mouse_area(container("").width(6).height(Length::Fill))
+                .interaction(mouse::Interaction::ResizingHorizontally)
+                .on_press(Message::EdgeResizePressed(Edge::Left));
+
+            let top_left_handle = mouse_area(container("").width(12).height(12))
+                .interaction(mouse::Interaction::ResizingDiagonallyDown)
+                .on_press(Message::EdgeResizePressed(Edge::TopLeft));
+
+            let top_right_handle = mouse_area(container("").width(12).height(12))
+                .interaction(mouse::Interaction::ResizingDiagonallyUp)
+                .on_press(Message::EdgeResizePressed(Edge::TopRight));
+
+            let right_container = container(right_handle)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::alignment::Horizontal::Right);
+
+            let bottom_container = container(bottom_handle)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_y(iced::alignment::Vertical::Bottom);
+
+            let bottom_right_container = container(bottom_right_handle)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::alignment::Horizontal::Right)
+                .align_y(iced::alignment::Vertical::Bottom);
+
+            let bottom_left_container = container(bottom_left_handle)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::alignment::Horizontal::Left)
+                .align_y(iced::alignment::Vertical::Bottom);
+
+            let top_container = container(top_handle)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_y(iced::alignment::Vertical::Top);
+
+            let left_container = container(left_handle)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::alignment::Horizontal::Left);
+
+            let top_left_container = container(top_left_handle)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::alignment::Horizontal::Left)
+                .align_y(iced::alignment::Vertical::Top);
+
+            let top_right_container = container(top_right_handle)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::alignment::Horizontal::Right)
+                .align_y(iced::alignment::Vertical::Top);
+
+            stack![
+                main_container,
+                top_container,
+                bottom_container,
+                left_container,
+                right_container,
+                top_left_container,
+                top_right_container,
+                bottom_left_container,
+                bottom_right_container
+            ]
+            .width(Length::Fill)
+            .height(Length::Fill)
             .into()
+        }
     }
 
     /// Returns the application theme.
     pub fn theme(&self) -> Theme {
         Theme::Dark
+    }
+
+    // --- Daemon-compatible wrappers (Linux) ---
+    // `iced::daemon` requires `view` and `theme` to accept a `window::Id` parameter.
+    // We ignore it since QDM only ever has one logical window at a time.
+
+    /// Daemon-compatible view: delegates to [`Self::view()`].
+    #[cfg(target_os = "linux")]
+    pub fn view_daemon(&self, _window: iced::window::Id) -> Element<'_, Message> {
+        self.view()
+    }
+
+    /// Daemon-compatible theme: delegates to [`Self::theme()`].
+    #[cfg(target_os = "linux")]
+    pub fn theme_daemon(&self, _window: iced::window::Id) -> Theme {
+        self.theme()
+    }
+
+    /// Returns a transparent window appearance so the outer rounded border clips cleanly.
+    pub fn style(&self, _theme: &Theme) -> iced::daemon::Appearance {
+        iced::daemon::Appearance {
+            background_color: iced::Color::TRANSPARENT,
+            text_color: colors::TEXT_PRIMARY,
+        }
     }
 
     /// Builds the schedule status banner shown on the Scheduled tab.
