@@ -15,17 +15,19 @@ async fn test_version_check_live_endpoint() {
     );
 
     let info = maybe_update.unwrap();
-    assert_eq!(info.version, "v1.0.3");
+    assert!(info.version.starts_with('v'));
     assert!(info.checksum_sha256.is_some());
     assert!(!info.download_url.is_empty());
-    assert!(info.file_name.starts_with("qdm-update-v1.0.3-"));
+    assert!(info
+        .file_name
+        .starts_with(&format!("qdm-update-{}-", info.version)));
 
     // Check with equal or newer version
-    let up_to_date = check_for_updates(api_url, "1.0.3").await;
+    let up_to_date = check_for_updates(api_url, &info.version).await;
     assert!(up_to_date.is_ok());
     assert!(
         up_to_date.unwrap().is_none(),
-        "Expected no update for current 1.0.3"
+        "Expected no update when querying latest server version"
     );
 }
 
