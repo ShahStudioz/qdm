@@ -1,6 +1,6 @@
 [package]
 name = "qdm"
-version = "1.0.4"
+version = "1.0.5"
 edition = "2021"
 description = "Quick Download Manager - Modern Open-Source Downloader in Rust & Iced"
 

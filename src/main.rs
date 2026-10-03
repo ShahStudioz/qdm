@@ -51,6 +51,19 @@ fn main() -> iced::Result {
         eprintln!("Failed to initialize GTK: {}", err);
     }
 
+    // On Windows, set explicit AppUserModelID so the taskbar groups properly with shortcuts
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let aumid: Vec<u16> = std::ffi::OsStr::new("shahstudioz.qdm.app")
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        unsafe {
+            windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(aumid.as_ptr());
+        }
+    }
+
     // Parse command line flags (--minimized, --startup, --silent)
     let args: Vec<String> = std::env::args().skip(1).collect();
     let start_minimized = args
