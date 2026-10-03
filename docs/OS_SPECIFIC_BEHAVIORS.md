@@ -185,6 +185,19 @@ In GitHub Actions release workflows, we pass `DEPLOY_GTK_VERSION=3`:
 2. `linuxdeploy-plugin-gtk` copies GTK 3 assets, `glib-2.0/schemas/gschemas.compiled`, and MIME definitions into the AppImage.
 3. The resulting `.AppImage` is 100% self-contained and runs on Ubuntu, Debian, Fedora, Arch, openSUSE, and Alpine without additional runtime installations.
 
+### 3.5 AppImage Host Isolation & Virtual Machine Graphics Safeguards
+
+#### 1. Host GIO / GVFS Symbol Mismatch (`g_task_set_static_name`)
+- **The Issue**: When an AppImage bundles GTK and GLib, `AppRun` prepends the bundled libraries to `LD_LIBRARY_PATH`. On modern desktop distributions (such as Ubuntu 24.04), GIO attempts to load host desktop integration modules from `/usr/lib/x86_64-linux-gnu/gio/modules/libgvfsdbus.so`. If the AppImage was built on an older runner with an older GLib, host modules fail to link due to missing symbols (e.g. `undefined symbol: g_task_set_static_name`).
+- **The Solution**: In `src/main.rs`, QDM detects when running under an AppImage (`APPIMAGE` or `APPDIR` environment variables) and sets `GIO_MODULE_DIR=""` if not explicitly overridden, isolating the bundled GLib from incompatible host extensions.
+
+#### 2. Virtual Machine & Fallback Graphics Backends (`wgpu` / EGL)
+- **The Issue**: In virtualized Linux guests (VMware, VirtualBox, QEMU), hardware Vulkan drivers are absent. When falling back to OpenGL/GLES, `wgpu-hal`'s EGL loader requires an active EGL 1.5 platform context (`khronos_egl::EGL1_5`). If graphics driver versions or DRI loaders mismatch between the bundled libraries and the host Mesa driver (`vmwgfx_dri.so`), platform negotiation drops through to `egl.get_display(EGL_DEFAULT_DISPLAY).unwrap()`, which panics on Linux.
+- **The Solution**:
+  1. Default `WGPU_BACKEND` to `"vulkan,gl"` and `WGPU_ALLOW_INSECURE="1"`.
+  2. Build GitHub release AppImages on modern LTS environments (`ubuntu-24.04`) so bundled Mesa/X11 libraries match contemporary distros.
+  3. If running inside a VM with broken 3D driver acceleration, setting `LIBGL_ALWAYS_SOFTWARE=1` forces Mesa to use `llvmpipe` (CPU software rasterization), which provides full EGL 1.5 compliance without GPU driver crashes.
+
 ---
 
 ## 4. Windows Platform Behaviors
