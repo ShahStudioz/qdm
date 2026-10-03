@@ -1,0 +1,4 @@
+# Adwaita Mono (variant of fonts-iosevka) is not in Debian yet.
+# See https://bugs.debian.org/973995 and https://bugs.debian.org/1093547
+[org.gnome.desktop.interface]
+monospace-font-name = 'Monospace 11'
