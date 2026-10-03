@@ -18,6 +18,7 @@ pub mod services {
     pub mod torrent {
         pub mod engine;
     }
+    pub mod updater;
     pub mod shared {
         pub mod network;
         pub mod schedule;

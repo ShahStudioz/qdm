@@ -258,7 +258,11 @@ fn handle_download_completed(app: &mut QdmApp, id: usize, sha256: Option<String>
                         file_size: size,
                     };
                 } else {
-                    let _ = std::fs::remove_file(&target_file);
+                    if target_file.is_dir() {
+                        let _ = std::fs::remove_dir_all(&target_file);
+                    } else {
+                        let _ = std::fs::remove_file(&target_file);
+                    }
                     app.update_status = crate::services::updater::UpdateStatus::Error {
                         message: "Downloaded update failed checksum verification.".to_string(),
                     };
