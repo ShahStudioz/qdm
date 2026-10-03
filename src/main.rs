@@ -35,6 +35,11 @@ use app::QdmApp;
 
 /// Main application entry point.
 fn main() -> iced::Result {
+    // On Linux VMs (e.g. VMware) or environments without full EGL 1.5, default WGPU to OpenGL
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WGPU_BACKEND").is_none() {
+        std::env::set_var("WGPU_BACKEND", "gl");
+    }
     // On Linux, initialize GTK runtime for AppIndicator / Ayatana tray support
     #[cfg(target_os = "linux")]
     if let Err(err) = gtk::init() {
