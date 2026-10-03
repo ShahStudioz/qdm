@@ -290,7 +290,7 @@ pub(crate) fn handle_update_check_result(
             let target_file = updates_dir.join(&info.file_name);
             let mut already_ready = false;
 
-            if target_file.exists() {
+            if target_file.is_file() {
                 if let Ok(meta) = std::fs::metadata(&target_file) {
                     if meta.len() > 0 {
                         let hash_valid = if let Some(ref sha) = info.checksum_sha256 {
@@ -311,6 +311,9 @@ pub(crate) fn handle_update_check_result(
                         }
                     }
                 }
+            } else if target_file.is_dir() {
+                // If a leftover directory exists from previous buggy runs, clean it up
+                let _ = std::fs::remove_dir_all(&target_file);
             }
 
             if !already_ready {
@@ -342,7 +345,11 @@ pub(crate) fn handle_start_update_download(app: &mut QdmApp) -> Task<Message> {
 
     let updates_dir = crate::core::utils::paths::get_updates_dir();
     let target_file = updates_dir.join(&info.file_name);
-    let save_path = target_file.to_string_lossy().to_string();
+    // If a leftover directory exists from previous buggy runs, clean it up
+    if target_file.is_dir() {
+        let _ = std::fs::remove_dir_all(&target_file);
+    }
+    let save_path = updates_dir.to_string_lossy().to_string();
 
     let download_id = app.downloads.iter().map(|d| d.id).max().unwrap_or(0) + 1000;
 

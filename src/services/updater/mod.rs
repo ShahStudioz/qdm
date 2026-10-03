@@ -233,7 +233,7 @@ pub async fn check_for_updates(
         file_format,
         file_size_bytes: file_size,
         formatted_size,
-        checksum_sha256: checksum,
+        checksum_sha256: checksum.filter(|s| !s.trim().is_empty()),
     }))
 }
 
@@ -250,15 +250,20 @@ pub fn load_cached_update() -> Option<(UpdateInfo, PathBuf)> {
     // Ensure the cached version is strictly newer than current app version
     if !is_version_greater(&cached.info.version, APP_VERSION) {
         let _ = std::fs::remove_file(&cache_file);
-        if cached.file_path.exists() {
+        if cached.file_path.is_dir() {
+            let _ = std::fs::remove_dir_all(&cached.file_path);
+        } else if cached.file_path.exists() {
             let _ = std::fs::remove_file(&cached.file_path);
         }
         return None;
     }
 
-    // Verify the downloaded file actually exists on disk and is non-empty
-    if !cached.file_path.exists() {
+    // Verify the downloaded file actually exists on disk and is a regular file
+    if !cached.file_path.is_file() {
         let _ = std::fs::remove_file(&cache_file);
+        if cached.file_path.is_dir() {
+            let _ = std::fs::remove_dir_all(&cached.file_path);
+        }
         return None;
     }
 
@@ -411,6 +416,48 @@ mod tests {
             "0000000000000000000000000000000000000000000000000000000000000000"
         ));
 
+        // Opening a directory must return false (the exact bug that caused update failure)
+        assert!(!verify_file_sha256(&temp_dir, &expected));
+
         let _ = std::fs::remove_file(test_file);
+    }
+
+    #[test]
+    fn test_update_cache_persistence_and_validation() {
+        let temp_dir = std::env::temp_dir();
+        let fake_update_file = temp_dir.join("qdm-update-v9.9.9-x64.exe");
+        std::fs::write(&fake_update_file, b"FAKE_NEW_UPDATE_DATA").unwrap();
+
+        let mut hasher = Sha256::new();
+        hasher.update(b"FAKE_NEW_UPDATE_DATA");
+        let hash = format!("{:x}", hasher.finalize());
+
+        let info = UpdateInfo {
+            version: "9.9.9".to_string(),
+            title: "Test Release".to_string(),
+            changelog: "Bugfixes".to_string(),
+            released_at: None,
+            download_url: "https://example.com/download".to_string(),
+            direct_url: None,
+            file_name: "qdm-update-v9.9.9-x64.exe".to_string(),
+            file_format: "exe".to_string(),
+            file_size_bytes: Some(20),
+            formatted_size: Some("20 B".to_string()),
+            checksum_sha256: Some(hash),
+        };
+
+        // Saving cache with a valid file
+        assert!(save_cached_update(&info, &fake_update_file).is_ok());
+
+        // Loading cache must resolve successfully
+        let cached = load_cached_update();
+        assert!(cached.is_some());
+        let (loaded_info, loaded_path) = cached.unwrap();
+        assert_eq!(loaded_info.version, "9.9.9");
+        assert_eq!(loaded_path, fake_update_file);
+
+        // Cleanup
+        clear_cached_update();
+        let _ = std::fs::remove_file(fake_update_file);
     }
 }

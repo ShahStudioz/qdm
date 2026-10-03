@@ -443,7 +443,11 @@ impl DownloadTaskController {
                                 // Rename temporary .qdmdownload file to final filename upon completion
                                 if temp_file_path.exists() {
                                     if final_file_path.exists() {
-                                        let _ = std::fs::remove_file(&final_file_path);
+                                        if final_file_path.is_dir() {
+                                            let _ = std::fs::remove_dir_all(&final_file_path);
+                                        } else {
+                                            let _ = std::fs::remove_file(&final_file_path);
+                                        }
                                     }
                                     let mut rename_success = false;
                                     for attempt in 0..10 {
