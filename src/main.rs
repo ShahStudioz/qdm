@@ -35,6 +35,16 @@ use app::QdmApp;
 
 /// Main application entry point.
 fn main() -> iced::Result {
+    // On Linux, enable fallback graphics backends and allow software rendering (Mesa/LLVMpipe in VMs)
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("WGPU_BACKEND").is_none() {
+            std::env::set_var("WGPU_BACKEND", "vulkan,gl");
+        }
+        if std::env::var_os("WGPU_ALLOW_INSECURE").is_none() {
+            std::env::set_var("WGPU_ALLOW_INSECURE", "1");
+        }
+    }
     // On Linux, initialize GTK runtime for AppIndicator / Ayatana tray support
     #[cfg(target_os = "linux")]
     if let Err(err) = gtk::init() {
