@@ -35,14 +35,22 @@ use app::QdmApp;
 
 /// Main application entry point.
 fn main() -> iced::Result {
-    // On Linux, enable fallback graphics backends and allow software rendering (Mesa/LLVMpipe in VMs)
+    // On Linux, configure runtime environment safeguards:
     #[cfg(target_os = "linux")]
     {
+        // Enable fallback graphics backends and allow software rendering (Mesa/LLVMpipe in VMs)
         if std::env::var_os("WGPU_BACKEND").is_none() {
             std::env::set_var("WGPU_BACKEND", "vulkan,gl");
         }
         if std::env::var_os("WGPU_ALLOW_INSECURE").is_none() {
             std::env::set_var("WGPU_ALLOW_INSECURE", "1");
+        }
+        // When running inside an AppImage, prevent bundled GLib from loading incompatible host
+        // GIO/GVFS modules (which cause undefined symbol crashes like `g_task_set_static_name`)
+        if (std::env::var_os("APPIMAGE").is_some() || std::env::var_os("APPDIR").is_some())
+            && std::env::var_os("GIO_MODULE_DIR").is_none()
+        {
+            std::env::set_var("GIO_MODULE_DIR", "");
         }
     }
     // On Linux, initialize GTK runtime for AppIndicator / Ayatana tray support
