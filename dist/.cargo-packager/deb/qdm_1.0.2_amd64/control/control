@@ -1,9 +1,0 @@
-Package: qdm
-Version: 1.0.2
-Architecture: amd64
-Installed-Size: 49049
-Maintainer: ShahStudioz
-Priority: optional
-Depends: libc6, libssl3 | libssl1.1, libgtk-3-0, libxdo3
-Description: Quick Download Manager - Modern Open-Source Downloader in Rust & Iced
- Quick Download Manager (QDM) is a fast, lightweight, and modern open-source download manager built with Rust and Iced. It supports segmented multi-connection HTTP/HTTPS downloads, BitTorrent/magnet links, speed throttling, scheduling, and automatic updates.
