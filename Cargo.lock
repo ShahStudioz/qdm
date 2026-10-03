@@ -4722,7 +4722,7 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "qdm"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "chrono",
  "dirs 6.0.0",
